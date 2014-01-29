@@ -52,6 +52,7 @@ defaultZeroMQParameters = ZeroMQParameters
 -- | Transport data type.
 data ZeroMQTransport = ZeroMQTransport
     { transportAddress :: !ByteString              -- ^ Transport address (used as identifier).
+    , transportChannel :: !(Chan ZMQAction)        -- ^ Message for actions (XXX: use closable channel?)
     , _transportState  :: !(MVar TransportState)   -- ^ Internal state.
     }
 
@@ -108,6 +109,9 @@ data ZMQMessage =
       | MessageCloseConnection
       | ZMQMessage !ByteString
 
+-- | List of messages that threads can send to the worker thread
+data ZMQAction =
+        ActionMessage ByteString [ByteString]
 
 createTransport :: ZeroMQParameters
                 -> ByteString
@@ -115,6 +119,7 @@ createTransport :: ZeroMQParameters
 createTransport _params addr = do
     transport <- ZeroMQTransport 
                     <$> pure addr
+                    <*> newChan
                     <*> newMVar (TransportValid (ValidTransportState M.empty 0))
     try $ do
       needContinue <- newIORef True
