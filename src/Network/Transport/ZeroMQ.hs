@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric, StandaloneDeriving #-}
 module Network.Transport.ZeroMQ
   ( -- * Main API
     createTransport
@@ -11,6 +12,7 @@ import           Control.Applicative
 import           Control.Concurrent
        ( yield
        )
+import qualified Control.Concurrent.Async as A
 import           Control.Concurrent.Chan
 import           Control.Concurrent.MVar
 import           Control.Concurrent.STM
@@ -23,21 +25,33 @@ import           Control.Exception
 import           Control.Monad
       ( when
       , void
+      , forever
       )
 import           Control.Monad.IO.Class
 
+import           Data.Binary
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as B8
 import           Data.IORef
+import           Data.List.NonEmpty
 import           Data.Maybe
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import           Data.Typeable
 import           Data.Void
 import           Data.Word
+import           GHC.Generics 
 
 import Network.Transport
 import qualified System.ZMQ4.Monadic as ZMQ
+
+
+-- Missing instances
+deriving instance Generic Reliability
+deriving instance Typeable Reliability
+instance Binary Reliability
 
 -- | Parameters for ZeroMQ connection
 data ZeroMQParameters = ZeroMQParameters
@@ -91,7 +105,6 @@ data RemoteEndPoint = RemoteEndPoint
       , remoteId        :: !Word32
       }
 
-
 data RemoteState
       = RemoteEndPointInvalid !(TransportError ConnectErrorCode)
       | RemoteEndPointInit 
@@ -101,17 +114,19 @@ data RemoteState
 
 data ValidRemoteEndPointState = ValidRemoteEndPointState
 
-
-data ZMQMessage = 
-        MessageConnect
+data ZMQMessage 
+      = MessageConnect
       | MessageOk
       | MessageInitConnection !Reliability !EndPointAddress
-      | MessageCloseConnection
-      | ZMQMessage !ByteString
+      | MessageCloseConnection !EndPointAddress
+      | MessageData
+      deriving (Generic)
 
--- | List of messages that threads can send to the worker thread
-data ZMQAction =
-        ActionMessage ByteString [ByteString]
+instance Binary ZMQMessage
+
+data ZMQAction
+        = ActionMessage !ByteString ![ByteString]
+        | ActionCloseEP !ByteString !EndPointAddress
 
 createTransport :: ZeroMQParameters
                 -> ByteString
@@ -127,8 +142,14 @@ createTransport _params addr = do
         router <- ZMQ.socket ZMQ.Router
         ZMQ.setIdentity (ZMQ.restrict addr) router
         ZMQ.bind router (B8.unpack addr)
+        queue <- ZMQ.async $ processQueue (transportChannel transport) router 
         repeatWhile (ZMQ.liftIO $ readIORef needContinue) $ do
           liftIO $ yield
+        -- TODO: Close all endpoints
+        ZMQ.unbind router (B8.unpack addr)
+        liftIO $ do
+          modifyMVar_ (_transportState transport) $ \_ -> return TransportClosed
+          A.cancel queue
       return $
         Transport
           { newEndPoint    = apiNewEndPoint transport
@@ -137,6 +158,21 @@ createTransport _params addr = do
   where
     repeatWhile :: MonadIO m => m Bool -> m () -> m ()
     repeatWhile f g = f >>= flip when (g >> repeatWhile f g)
+    processQueue chan router = forever $ do
+        action <- liftIO $ readChan chan
+        case action of
+          ActionMessage ident message -> do
+              -- Just send message to the router, really we have no any
+              -- guarantee of delivery and don't know if recipient is still
+              -- alive. So we are hoping on the other mechanisms to give us
+              -- real reliability.
+              --
+              -- XXX: use sendTimeout properly
+              ZMQ.sendMulti router $ ident :| (encode' MessageData):message
+          ActionCloseEP ident addr    -> do
+              -- Notify the other side about the fact that connection is
+              -- closed.
+              ZMQ.sendMulti router $ ident :| [encode' $ MessageCloseConnection addr]
 
 apiNewEndPoint :: ZeroMQTransport -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
 apiNewEndPoint transport = do
@@ -160,7 +196,6 @@ apiNewEndPoint transport = do
             TransportError NewMulticastGroupUnsupported "Multicast not supported"
       , resolveMulticastGroup = return . return . Left $ 
             TransportError ResolveMulticastGroupUnsupported "Multicast not supported"
-
       }
 
 apiConnect :: EndPointAddress
@@ -169,10 +204,25 @@ apiConnect :: EndPointAddress
            -> Reliability
            -> ConnectHints
            -> IO (Either (TransportError ConnectErrorCode) Connection)
-apiConnect _ourep transport _theirep _reliability _hints = error "apiConnect"
+apiConnect ourEp transport theirEp reliability _hints = do
+    -- TODO: [1] get host address
+    -- TODO: [2] create uri based on host address and reliability
+    -- TODO: [3] connect default socket to host address
+    -- TODO: [4] initialize handshake
+    -- TODO: [5] accomplish handshake
+    -- TODO: [6] notify otherside about endpoint connection (?)
+    theirId <- error "TODO: get host identity"
+    let chan = transportChannel transport
+    return . Right $ Connection
+      { send = apiSend chan theirId
+      , close = apiCloseConnection chan ourEp theirId
+      }
 
-apiSend :: [ByteString] -> IO (Either (TransportError SendErrorCode) ())
-apiSend = error "apiSend"
+apiSend :: Chan ZMQAction -> ByteString -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
+apiSend chan eddr bs = writeChan chan (ActionMessage eddr bs) >> return (Right ()) -- XXX: implement SendErroCode
 
-apiClose :: IO ()
-apiClose = error "apiClose"
+apiCloseConnection :: Chan ZMQAction -> EndPointAddress -> ByteString -> IO ()
+apiCloseConnection chan ep bs = writeChan chan (ActionCloseEP bs ep)
+
+encode' :: Binary a => a  -> ByteString
+encode' = B.concat . BL.toChunks . encode
