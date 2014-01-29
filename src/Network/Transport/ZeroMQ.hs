@@ -17,6 +17,7 @@ import           Control.Concurrent.STM
 import           Control.Concurrent.STM.TMChan
 import           Control.Exception
       ( try
+      , throwIO
       , IOException
       )
 import           Control.Monad
@@ -50,8 +51,8 @@ defaultZeroMQParameters = ZeroMQParameters
 
 -- | Transport data type.
 data ZeroMQTransport = ZeroMQTransport
-    { _transportAddress :: !ByteString              -- ^ Transport address (used as identifier).
-    , _transportState   :: !(MVar TransportState)   -- ^ Internal state.
+    { transportAddress :: !ByteString              -- ^ Transport address (used as identifier).
+    , _transportState  :: !(MVar TransportState)   -- ^ Internal state.
     }
 
 -- | Transport state.
@@ -133,7 +134,29 @@ createTransport _params addr = do
     repeatWhile f g = f >>= flip when (g >> repeatWhile f g)
 
 apiNewEndPoint :: ZeroMQTransport -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
-apiNewEndPoint transport = error "apiNewEndPoint"
+apiNewEndPoint transport = do
+    chan <- newTMChanIO
+    addr <- modifyMVar (_transportState transport) $ \st ->
+      case st of
+        TransportClosed ->
+           throwIO $ userError "Transport is closed"  --- XXX: should we return left with error here?
+        TransportValid (ValidTransportState eps nxt) ->
+           let nxt' = succ nxt
+               addr = EndPointAddress $
+                        (transportAddress transport) `B.append` (B8.pack $ show nxt')
+               eps' = M.insert addr (LocalEndPointValid (ValidLocalEndPointState 0 0 M.empty)) eps
+           in return (TransportValid (ValidTransportState eps' nxt'), addr)
+    return . Right $ EndPoint
+      { receive = fromMaybe EndPointClosed <$> atomically (readTMChan chan)
+      , address = addr
+      , connect = apiConnect addr transport
+      , closeEndPoint         = atomically $ closeTMChan chan
+      , newMulticastGroup     = return . Left $
+            TransportError NewMulticastGroupUnsupported "Multicast not supported"
+      , resolveMulticastGroup = return . return . Left $ 
+            TransportError ResolveMulticastGroupUnsupported "Multicast not supported"
+
+      }
 
 apiConnect :: EndPointAddress
            -> ZeroMQTransport
