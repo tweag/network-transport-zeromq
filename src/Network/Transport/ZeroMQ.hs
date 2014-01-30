@@ -230,17 +230,15 @@ createTransport :: ZeroMQParameters -- ^ Transport features.
                 -> ByteString       -- ^ Port.
                 -> IO (Either (TransportError Void) Transport)
 createTransport _params host port = do
-    state     <- TransportValid <$>
-                    (ValidTransportState <$> 
-                           pure M.empty
+    vstate   <- ValidTransportState
+                       <$> pure M.empty
                        <*> pure 0
                        <*> newMVar (M.empty)
                        <*> newChan
                        <*> newMVar (PendingConnections 0 M.empty)
-                       )
     transport <- ZeroMQTransport 
                     <$> pure addr
-                    <*> newMVar state
+                    <*> newMVar (TransportValid vstate)
     try $ do
       needContinue <- newIORef True
       void $ ZMQ.runZMQ $ ZMQ.async $ do
@@ -252,7 +250,7 @@ createTransport _params host port = do
         -- Start worker threads.
         mon   <- ZMQ.async $ processMonitor router
         queue <- ZMQ.async $ processQueue transport router 
-        mainloop transport router needContinue
+        mainloop vstate router needContinue
 
         -- TODO: Close all endpoints
         ZMQ.unbind router (B8.unpack addr)
@@ -294,39 +292,40 @@ createTransport _params host port = do
           ActionConnect ident rel addr    -> do
               msg <- registerPendingConnection transport rel addr
               ZMQ.sendMulti router $ ident :| [encode' msg, ""]
-    mainloop transport router needContinue = do
-      repeatWhile (ZMQ.liftIO $ readIORef needContinue) $ do
-        events <- ZMQ.poll 0 [ZMQ.Sock router [ZMQ.In] Nothing]
-        case events of
-          [] -> return ()
-          _  -> do
-             identity <- ZMQ.receive router
-             (cmd:msgs) <- ZMQ.receiveMulti router
-             case decode' cmd of
-               MessageConnect ident ->
-                 -- 1. Change RemoteHost state to connected
-                 -- 2. Put ready MVar variable
-                 undefined
-               MessageInitConnection theirId rel ep ->
-                 -- 1. Check if we have endpoint
-                 -- 2. Create new connection identifier
-                 -- 3. Add identifier to endpoint connections (?)
-                 -- 4. reply with new connection ID
-                 undefined
-               MessageCloseConnection idx ->
-                 -- 1. mark connection state as closed.
-                 -- 2. remove connection from endpoint connections (?)
-                 undefined
-               MessageInitConnectionOk ourId theirId ->
-                 -- 1. find pending connection
-                 -- 2. mark connection as valid
-                 -- 3. Put ready MVar Variable
-                 undefined
-               MessageData idx -> do
-                 -- 1. find channel by connection id
-                 -- 2. put data into channel
-                 undefined
-        liftIO $ yield
+    mainloop vstate router needContinue =
+        repeatWhile (ZMQ.liftIO $ readIORef needContinue) $ do
+          events <- ZMQ.poll 0 [ZMQ.Sock router [ZMQ.In] Nothing]
+          case events of
+            [] -> return ()
+            _  -> do
+              identity <- ZMQ.receive router
+              (cmd:msgs) <- ZMQ.receiveMulti router
+              case decode' cmd of
+                MessageConnect ident ->
+                  -- 1. Change RemoteHost state to connected
+                  -- 2. Put ready MVar variable
+                 
+                  undefined
+                MessageInitConnection theirId rel ep ->
+                  -- 1. Check if we have endpoint
+                  -- 2. Create new connection identifier
+                  -- 3. Add identifier to endpoint connections (?)
+                  -- 4. reply with new connection ID
+                  undefined
+                MessageCloseConnection idx ->
+                  -- 1. mark connection state as closed.
+                  -- 2. remove connection from endpoint connections (?)
+                  undefined
+                MessageInitConnectionOk ourId theirId ->
+                  -- 1. find pending connection
+                  -- 2. mark connection as valid
+                  -- 3. Put ready MVar Variable
+                  undefined
+                MessageData idx -> do
+                  -- 1. find channel by connection id
+                  -- 2. put data into channel
+                  undefined
+          liftIO $ yield
     registerPendingConnection :: Monad m => ZeroMQTransport -> Reliability -> EndPointAddress -> m ZMQMessage
     registerPendingConnection = undefined
 
