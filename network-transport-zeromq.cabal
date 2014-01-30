@@ -37,3 +37,4 @@ library
   default-extensions:  DeriveGeneric
                        DeriveDataTypeable
   default-language:    Haskell2010
+
