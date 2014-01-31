@@ -60,7 +60,6 @@ data ZeroMQParameters = ZeroMQParameters
 defaultZeroMQParameters :: ZeroMQParameters
 defaultZeroMQParameters = ZeroMQParameters
 
--- XXX: can we reopen transport?
 -- XXX: we may want to introduce a new level of indirection: socket -> endpoint
 -- XXX: when incrementing endpoint we need to check that we have no node
 -- with that address.
@@ -497,10 +496,17 @@ apiConnect ourEp transport theirEp reliability _hints = do
                                   return (IncommingConnections n' (M.insert n' c m), n')
                               atomically $ writeTMChan ch $ ConnectionOpened idx reliability ourEp
                               return . Right $ Connection
-                                { send = \bs -> atomically (writeTMChan ch (Received idx bs)) >> return (Right ())
+                                { send = \bs -> do
+                                    withMVar (_transportConnections v) $ \(IncommingConnections n m) -> do
+                                        case idx `M.lookup` m of
+                                          Nothing -> return $ Left $ TransportError SendClosed "Connection is closed."
+                                          Just _ -> atomically (writeTMChan ch (Received idx bs)) >> return (Right ())
                                 , close =
                                     modifyMVar_ (_transportConnections v) $ \(IncommingConnections n m) -> do
-                                      atomically $ writeTMChan ch $ ConnectionClosed idx
+                                      case idx `M.lookup` m of
+                                          Nothing -> return () -- already closed
+                                          Just (ZMQIncommingConnection _ ch)  -> do
+                                              atomically $ writeTMChan ch $ ConnectionClosed idx
                                       return $ (IncommingConnections n (M.delete idx m)) -- Note incomming connections may be only valid (it seems not correct)
                                 }
       where
