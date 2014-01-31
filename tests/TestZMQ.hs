@@ -27,7 +27,7 @@ testTransport' newTransport = do
     , ("CloseTwice",            testCloseTwice transport 100)
     , ("ConnectToSelf",         testConnectToSelf transport numPings)
     , ("ConnectToSelfTwice",    testConnectToSelfTwice transport numPings)
---    , ("CloseSelf",             testCloseSelf newTransport)
+    , ("CloseSelf",             testCloseSelf newTransport)
 --    , ("CloseEndPoint",         testCloseEndPoint transport numPings)
 --    , ("CloseTransport",        testCloseTransport newTransport)
 --    , ("ConnectClosedEndPoint", testConnectClosedEndPoint transport)
