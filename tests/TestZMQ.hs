@@ -16,30 +16,22 @@ testTransport' newTransport = do
   Right transport <- newTransport
   runTests
     [ ("PingPong",              testPingPong transport numPings)
---    , ("EndPoints",             testEndPoints transport numPings)
---    , ("Connections",           testConnections transport numPings)
---    -- FIXME: Test stalls sometimes
---    --, ("CloseOneConnection",    testCloseOneConnection transport numPings)
---    , ("CloseOneConnection",      undefined)
---    , ("CloseOneDirection",     testCloseOneDirection transport numPings)
---    , ("CloseReopen",           testCloseReopen transport numPings)
---    -- FIXME: Fails, but causes tests to stop executing
---    -- , ("ParallelConnects",      testParallelConnects transport numPings)
---    , ("ParallelConnects",      undefined)
+    , ("EndPoints",             testEndPoints transport numPings)
+    , ("Connections",           testConnections transport numPings)
+    , ("CloseOneConnection",    testCloseOneConnection transport numPings)
+    , ("CloseOneDirection",     testCloseOneDirection transport numPings)
+    , ("CloseReopen",           testCloseReopen transport numPings)
+    , ("ParallelConnects",      testParallelConnects transport numPings)
 --    , ("SendAfterClose",        testSendAfterClose transport 100)
---    , ("Crossing",              testCrossing transport 10)
+    , ("Crossing",              testCrossing transport 10)
 --    , ("CloseTwice",            testCloseTwice transport 100)
---    , ("ConnectToSelf",         testConnectToSelf transport numPings)
---    , ("ConnectToSelfTwice",    testConnectToSelfTwice transport numPings)
+    , ("ConnectToSelf",         testConnectToSelf transport numPings)
+    , ("ConnectToSelfTwice",    testConnectToSelfTwice transport numPings)
 --    , ("CloseSelf",             testCloseSelf newTransport)
 --    , ("CloseEndPoint",         testCloseEndPoint transport numPings)
---    -- FIXME: Test stalls
---    --, ("CloseTransport",        testCloseTransport newTransport)
---    , ("CloseTransport",      undefined)
+--    , ("CloseTransport",        testCloseTransport newTransport)
 --    , ("ConnectClosedEndPoint", testConnectClosedEndPoint transport)
---    -- FIXME: Test stalls
---    --, ("ExceptionOnReceive",    testExceptionOnReceive newTransport)
---    , ("ExceptionOnReceive",      undefined)
+--    , ("ExceptionOnReceive",    testExceptionOnReceive newTransport)
 --    , ("SendException",         testSendException newTransport)
 --    , ("Kill",                  testKill newTransport 1000)
     ]
