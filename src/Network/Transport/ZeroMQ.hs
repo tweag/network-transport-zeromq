@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, StandaloneDeriving, OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric, StandaloneDeriving, OverloadedStrings, DeriveDataTypeable #-}
 module Network.Transport.ZeroMQ
   ( -- * Main API
     createTransport
@@ -44,6 +44,8 @@ import           GHC.Generics
 
 import Network.Transport
 import qualified System.ZMQ4.Monadic as ZMQ
+
+import           Text.Printf
 
 -- ---------------------------------------------------------------------------
 -- Missing instances
@@ -219,6 +221,7 @@ data ValidZMQConnection = ValidZMQConnection !Word64
  
 data ZMQMessage 
       = MessageConnect !ByteString
+      | MessageConnectOk !ByteString
       | MessageInitConnection !Word32 !EndPointAddress !Reliability !EndPointAddress
       | MessageInitConnectionOk !Word32 !Word64
       | MessageCloseConnection !ConnectionId
@@ -229,6 +232,7 @@ instance Binary ZMQMessage
 
 data ZMQAction
         = ActionMessage !ByteString !ConnectionId ![ByteString]
+        | ActionConnectHost !ByteString
         | ActionCloseEP !ByteString !EndPointAddress
         | ActionConnect !ByteString !ZMQConnection !EndPointAddress !Reliability !EndPointAddress
         | ActionCloseConnection !ByteString !ConnectionId
@@ -249,7 +253,7 @@ createTransport _params host port = do
                     <*> newMVar (TransportValid vstate)
     try $ do
       needContinue <- newIORef True
-      void $ ZMQ.runZMQ $ ZMQ.async $ do
+      a <- ZMQ.runZMQ $ ZMQ.async $ do
         -- Initialization.
         router <- ZMQ.socket ZMQ.Router
         ZMQ.setIdentity (ZMQ.restrict socketAddr) router
@@ -257,23 +261,25 @@ createTransport _params host port = do
 
         -- Start worker threads.
         mon   <- ZMQ.async $ processMonitor router
+        liftIO $ A.link mon
         queue <- ZMQ.async $ processQueue transport router 
+        liftIO $ A.link queue
         mainloop vstate router needContinue
 
         -- TODO: Close all endpoints
         ZMQ.unbind router (B8.unpack addr)
         liftIO $ do
           modifyMVar_ (_transportState transport) $ \_ -> return TransportClosed
-          A.cancel queue
-          A.cancel mon
+          mapM_ (A.cancel) [mon, queue]
 
+      A.link a
       return $ Transport
           { newEndPoint    = apiNewEndPoint transport
           , closeTransport = writeIORef needContinue False
           } 
   where
-    addr = B.concat [host, ":",port]
-    socketAddr = B.concat ["tcp://", addr]
+    addr = B.concat ["tcp://",host, ":",port]
+    socketAddr = addr
     repeatWhile :: MonadIO m => m Bool -> m () -> m ()
     repeatWhile f g = f >>= flip when (g >> repeatWhile f g)
     processMonitor router = do
@@ -281,7 +287,8 @@ createTransport _params host port = do
       forever $ do
         ev <- liftIO $ evalMonitor True
         case ev of
-          Just (ZMQ.Connected h _) -> 
+          Just (ZMQ.Connected h _) -> do
+            liftIO $ printf "[%s]: [monitor] connected %s\n" (B8.unpack socketAddr) (B8.unpack h)
             -- We are only replying with our address to the client, as we
             -- can't disconnect him.
             ZMQ.sendMulti router $ h :| [encode' (MessageConnect socketAddr),""]
@@ -292,41 +299,58 @@ createTransport _params host port = do
         action <- liftIO $ readChan chan
         case action of
           ActionMessage ident ix message -> do
+              liftIO $ dbg' "<ActionMessage>"
               ZMQ.sendMulti router $ ident :| (encode' $ MessageData ix):message
           ActionCloseEP _ident _addr -> do
+              liftIO $ dbg' "<ActionCloseEP>"
               -- Notify the other side about the fact that connection is
               -- closed.
               undefined
 --              ZMQ.sendMulti router $ ident :| [encode' $ MessageCloseConnection addr, ""]
           ActionConnect ident conn ourEp rel addr' -> do
+              liftIO $ dbg' "<ActionConnect>"
               idx <- liftIO $ modifyMVar ps $ \(PendingConnections n m) ->
                 let n' = succ n
                     m'  = M.insert n' conn m
                 in return (PendingConnections n m', n')
               ZMQ.sendMulti router $ ident :| [encode' $ MessageInitConnection  idx ourEp rel addr', ""]
+          ActionConnectHost ident -> do
+              liftIO $ printf "[%s]: ActionConnectHost\n" (B8.unpack socketAddr)
+              ZMQ.connect router (B8.unpack ident)
           ActionCloseConnection ident cid -> do
+              liftIO $ dbg' "<ActionCloseConnection>"
               ZMQ.sendMulti router $ ident :| [encode' $ MessageCloseConnection cid, ""]
     mainloop vstate router needContinue =
         repeatWhile (ZMQ.liftIO $ readIORef needContinue) $ do
-          events <- ZMQ.poll 0 [ZMQ.Sock router [ZMQ.In] Nothing]
+          events <- ZMQ.poll (-1) [ZMQ.Sock router [ZMQ.In] Nothing]
           case events of
             [] -> return ()
             _  -> do
+              liftIO $ printf "[%s]: got message\n" (B8.unpack socketAddr)
               identity <- ZMQ.receive router
               (cmd:msgs) <- ZMQ.receiveMulti router
               case decode' cmd of
-                MessageConnect ident ->
+                MessageConnect ident -> do
+                  liftIO $ printf "[%s]: message connect\n" (B8.unpack socketAddr)
+                  ZMQ.sendMulti router $ ident :| [encode' $ MessageConnectOk socketAddr, ""]
+                MessageConnectOk ident -> do
+                  liftIO $ printf "[%s]: message connect ok\n" (B8.unpack socketAddr)
                   liftIO $ withMVar remoteHosts $ \h -> do
                     case ident `M.lookup` h of
-                      Nothing -> return () -- XXX: write debug error message
+                      Nothing -> do
+                        liftIO $ printf "[%s][ERROR]: remote host is not in list: (%s) \n" (B8.unpack socketAddr) (B8.unpack ident)
                       Just x  -> do
                         _ <- swapMVar (_remoteHostState x) RemoteHostValid
                         putMVar (_remoteHostReady x) ()
                 MessageInitConnection theirId theirEp rel ep -> do
+                  liftIO $ printf "[%s]: message init connection\n" (B8.unpack socketAddr)
                   let epId = apiGetEndPointId ep
+                  liftIO $ printf "[%s]: endpoint id is: %i \n" (B8.unpack socketAddr) (epId)
                   ret <- liftIO $ withMVar (_localEndPoints vstate) $ \(LocalEndPoints _ eps) ->
                      case epId `M.lookup` eps of
-                      Nothing -> return Nothing -- XXX: reply with error message
+                      Nothing -> do
+                          liftIO $ printf "[%s]: no such endpoint\n" (B8.unpack socketAddr)
+                          return Nothing -- XXX: reply with error message
                       Just x  -> modifyMVar (_localEndPointState x) $ \s -> do
                           case s of
                             LocalEndPointValid (ValidLocalEndPointState chan)  -> do
@@ -344,17 +368,23 @@ createTransport _params host port = do
                   -- 1. mark connection state as closed.
                   -- 2. remove connection from endpoint connections (?)
                   undefined
-                MessageInitConnectionOk ourId theirId -> liftIO $
+                MessageInitConnectionOk ourId theirId -> liftIO $ do
+                  liftIO $ printf "[%s]: message init connection ok\n" (B8.unpack socketAddr)
                   modifyMVar_ (_transportPending vstate) $ \pconns ->
                     case ourId `M.lookup` (_pendingConnections pconns) of
-                        Nothing -> return pconns 
+                        Nothing -> do
+                            liftIO $ printf "[%s]: no such connection\n" (B8.unpack socketAddr)
+                            return pconns 
                         Just cn -> do
+                            liftIO $ printf "[%s]: found pending\n" (B8.unpack socketAddr)
                             rd <- modifyMVar (connectionState cn) $ \st ->
                               case st of
-                                ZMQConnectionInit -> return (ZMQConnectionValid (ValidZMQConnection theirId), True)
+                                ZMQConnectionInit -> do
+                                    liftIO $ printf "[%s]: correct state\n" (B8.unpack socketAddr)
+                                    return (ZMQConnectionValid (ValidZMQConnection theirId), True)
                                 _ -> return (st, False)
                             if rd
-                            then do void (swapMVar (connectionReady cn) ())
+                            then do putMVar (connectionReady cn) ()
                                     return (pconns{_pendingConnections=ourId `M.delete` (_pendingConnections pconns)})
                             else return pconns
                 MessageData idx -> liftIO $
@@ -377,10 +407,13 @@ apiNewEndPoint transport = do
            modifyMVar leps $ \(LocalEndPoints nxt eps) ->
              let nxt' = succ nxt
                  addr = EndPointAddress $
-                          (transportAddress transport) `B.append` (B8.pack $ show nxt')
+                          B.concat 
+                            [ transportAddress transport
+                            , "/"
+                            , B8.pack $ show nxt' ]
              in do
                 ep <- LocalEndPoint <$> newMVar (LocalEndPointValid (ValidLocalEndPointState chan))
-                let eps' = M.insert nxt ep eps
+                let eps' = M.insert nxt' ep eps
                 return (LocalEndPoints nxt' eps', addr)
     return . Right $ EndPoint
       { receive = fromMaybe EndPointClosed <$> atomically (readTMChan chan)
@@ -401,19 +434,26 @@ apiConnect :: EndPointAddress
            -> IO (Either (TransportError ConnectErrorCode) Connection)
 apiConnect ourEp transport theirEp reliability _hints = do
     let uri = apiGetUri theirEp reliability -- XXX: add reliabitily support
+    printf "[%s] connecting to <%s>\n" (B8.unpack . endPointAddressToByteString $ ourEp) (B8.unpack uri)
     host <- withMVar (_transportState transport) $ \state ->
       case state of
-        TransportClosed  -> error "transport is closed" -- TODO: return Left
+        TransportClosed  -> do
+            error "transport is closed" -- TODO: return Left
         TransportValid v -> do
+          dbg' "transport is valid."
           modifyMVar (_remoteHosts v) $ \m -> do
             case uri `M.lookup` m of
               Nothing -> do
                 x <- RemoteHost <$> pure uri
                                 <*> newMVar RemoteHostPending
                                 <*> newEmptyMVar
+                writeChan (transportChannel v)
+                          (ActionConnectHost uri)
                 return (M.insert uri x m, x)
               Just x  -> return (m, x)
+    printf "[%s] waiting for connection to remote\n" (B8.unpack . endPointAddressToByteString $ ourEp)
     _    <- readMVar (_remoteHostReady host)
+    printf "[%s] creating connection\n" (B8.unpack . endPointAddressToByteString $ ourEp)
     conn <- ZMQConnection <$> pure host
                           <*> newMVar ZMQConnectionInit
                           <*> newEmptyMVar
@@ -462,13 +502,15 @@ apiCloseConnection transport connection = do
     hid = _remoteHostUrl $ connectionHost connection
 
 apiGetUri :: EndPointAddress -> Reliability -> ByteString
-apiGetUri _addr _rel = undefined -- error "apiGetUri"
+apiGetUri addr _rel = B8.init $ fst $ B8.breakEnd (=='/') $ endPointAddressToByteString addr -- XXX: properly support reliability
 
 apiGetEndPointId :: EndPointAddress -> Word32
-apiGetEndPointId = undefined
+apiGetEndPointId epa = read . B8.unpack . snd $ B8.breakEnd (=='/') $ endPointAddressToByteString epa
 
 encode' :: Binary a => a  -> ByteString
 encode' = B.concat . BL.toChunks . encode
 
 decode' :: Binary a => ByteString -> a
-decode' = undefined
+decode' s = decode . BL.fromChunks $ [s]
+
+dbg' = liftIO . putStrLn
