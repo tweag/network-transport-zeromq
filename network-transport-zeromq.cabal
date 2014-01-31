@@ -37,4 +37,15 @@ library
   default-extensions:  DeriveGeneric
                        DeriveDataTypeable
   default-language:    Haskell2010
+ 
+Test-Suite test-zeromq
+  type:            exitcode-stdio-1.0
+  main-is:         TestZMQ.hs
+  build-depends:   base >= 4.4 && < 5,
+                   network-transport >= 0.2 && < 0.4,
+                   network-transport-zeromq,
+                   network-transport-tests >= 0.1.0.1 && < 0.2
+  ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  hs-source-dirs:  tests
+  default-language:    Haskell2010
 
