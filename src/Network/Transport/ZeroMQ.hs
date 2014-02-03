@@ -254,6 +254,8 @@ createTransport _params host port = do
     transport <- ZeroMQTransport 
                     <$> pure addr
                     <*> newMVar (TransportValid vstate)
+
+    closed <- newEmptyMVar
     try $ do
       needContinue <- newIORef True
       a <- ZMQ.runZMQ $ ZMQ.async $ do
@@ -271,14 +273,19 @@ createTransport _params host port = do
 
         -- TODO: Close all endpoints
         ZMQ.unbind router (B8.unpack addr)
+        ZMQ.close  router
+
         liftIO $ do
           modifyMVar_ (_transportState transport) $ \_ -> return TransportClosed
           mapM_ (A.cancel) [mon, queue]
+          putMVar closed ()
 
       A.link a
       return $ Transport
           { newEndPoint    = apiNewEndPoint transport
-          , closeTransport = writeIORef needContinue False
+          , closeTransport = do
+              writeIORef needContinue False
+              void $ readMVar closed
           } 
   where
     addr = B.concat ["tcp://",host, ":",port]
@@ -498,13 +505,13 @@ apiConnect ourEp transport theirEp reliability _hints = do
                 Nothing -> return $ Left $ TransportError ConnectFailed "Endpoint not found."
                 Just  e -> do
                   withMVar (_localEndPointState ourEp) $ \case
-                    LocalEndPointClosed -> return $ Left $ TransportError ConnectFailed "Iur endpoint is closed."
+                    LocalEndPointClosed -> return $ Left $ TransportError ConnectFailed "Our endpoint is closed."
                     LocalEndPointValid ourV ->
                       let action = 
                             if _localEndPointAddress ourEp == theirEp
                             then (\f -> f ourV)
                             else (\f -> withMVar (_localEndPointState e) $ \case
-                                          LocalEndPointClosed -> return $ Left $ TransportError ConnectFailed "Their endpoint is closed."
+                                          LocalEndPointClosed -> return $ Left $ TransportError ConnectNotFound "Their endpoint is closed."
                                           LocalEndPointValid theirV -> f theirV)
                       in action $ \(ValidLocalEndPointState ch) -> do
                            idx <- modifyMVar (_transportConnections v) $ \(IncommingConnections n m) -> do
