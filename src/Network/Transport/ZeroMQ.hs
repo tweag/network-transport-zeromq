@@ -395,7 +395,7 @@ createTransport _params host port = do
                 MessageData idx -> liftIO $
                   withMVar (_transportConnections vstate) $ \(IncommingConnections _ x) ->
                     case idx `M.lookup` x of
-                      Nothing -> undefined
+                      Nothing -> return ()
                       Just (ZMQIncommingConnection _ ch) -> atomically $ writeTMChan ch (Received idx msgs)
           liftIO $ yield
       where
@@ -514,18 +514,17 @@ apiConnect ourEp transport theirEp reliability _hints = do
                            atomically $ writeTMChan ch $ ConnectionOpened idx reliability (_localEndPointAddress ourEp)
                            return . Right $ Connection
                              { send = \bs -> do
-                                 withMVar (_transportConnections v) $ \(IncommingConnections n m) -> do
-                                   withMVar (_localEndPointState ourEp) $ \case
-                                     LocalEndPointValid _ -> 
-                                       case idx `M.lookup` m of
-                                         Nothing -> return $ Left $ TransportError SendClosed "Connection is closed."
-                                         Just _ ->
-                                           atomically $ do
-                                             closed <- isClosedTMChan ch
-                                             if closed
-                                             then return $ Left $ TransportError SendFailed "Connection is closed." 
-                                             else writeTMChan ch (Received idx bs) >> return (Right ())
-                                     LocalEndPointClosed -> return $ Left $ TransportError SendFailed "Our endpoint is closed."
+                                 withMVar (_localEndPointState ourEp) $ \case
+                                   LocalEndPointClosed -> return $ Left $ TransportError SendFailed "Our endpoint is closed."
+                                   LocalEndPointValid _ -> withMVar (_transportConnections v) $ \(IncommingConnections n m) -> do
+                                     case idx `M.lookup` m of
+                                       Nothing -> return $ Left $ TransportError SendClosed "Connection is closed."
+                                       Just _ ->
+                                         atomically $ do
+                                           closed <- isClosedTMChan ch
+                                           if closed
+                                           then return $ Left $ TransportError SendFailed "Connection is closed." 
+                                           else writeTMChan ch (Received idx bs) >> return (Right ())
                              , close =
                                  modifyMVar_ (_transportConnections v) $ \(IncommingConnections n m) -> do
                                    case idx `M.lookup` m of
