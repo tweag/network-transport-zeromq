@@ -209,7 +209,7 @@ data RemoteHostState
 --        | RemoteHostClosed
 
 -- Note Incomming connection is always valid
-data ZMQIncommingConnection = ZMQIncommingConnection !Word64 !(TMChan Event)
+data ZMQIncommingConnection = ZMQIncommingConnection !Word64 !ByteString !(TMChan Event)
 
 data ZMQConnection = ZMQConnection
       { connectionHost  :: !RemoteHost
@@ -389,7 +389,7 @@ createTransport _params host port = do
                             LocalEndPointValid (ValidLocalEndPointState chan)  -> do
                               idx <- modifyMVar (_transportConnections vstate) $ \(IncommingConnections n m) -> do
                                   let n' = succ n
-                                      c  = ZMQIncommingConnection n' chan
+                                      c  = ZMQIncommingConnection n' identity chan
                                   return (IncommingConnections n' (M.insert n' c m), n')
                               atomically $ writeTMChan chan $ ConnectionOpened idx rel theirEp
                               return (s, Just idx)
@@ -402,9 +402,11 @@ createTransport _params host port = do
                   modifyMVar_ (_transportConnections vstate) $ \i@(IncommingConnections n m) -> do
                     case idx `M.lookup` m of
                       Nothing -> return i -- XXX: errror no such connection
-                      Just (ZMQIncommingConnection _ ch) -> do
-                         atomically $ writeTMChan ch $ ConnectionClosed idx
-                         return $ (IncommingConnections n (M.delete idx m)) -- Note incomming connections may be only valid (it seems not correct)
+                      Just (ZMQIncommingConnection _ ep ch) 
+                        | ep == identity -> do
+                           atomically $ writeTMChan ch $ ConnectionClosed idx
+                           return $ (IncommingConnections n (M.delete idx m))
+                        | otherwise -> return (IncommingConnections n m)
                 MessageInitConnectionOk ourId theirId -> liftIO $ do
                   printf "[%s]: message init connection ok\n" (B8.unpack socketAddr)
                   modifyMVar_ (_transportPending vstate) $ \pconns ->
@@ -429,7 +431,9 @@ createTransport _params host port = do
                   withMVar (_transportConnections vstate) $ \(IncommingConnections _ x) ->
                     case idx `M.lookup` x of
                       Nothing -> return ()
-                      Just (ZMQIncommingConnection _ ch) -> atomically $ writeTMChan ch (Received idx msgs)
+                      Just (ZMQIncommingConnection _ idt ch)
+                        | idt == identity -> atomically $ writeTMChan ch (Received idx msgs)
+                        | otherwise -> return ()
           liftIO $ yield
       where
         remoteHosts = _remoteHosts vstate
@@ -553,7 +557,7 @@ apiConnect ourEp transport theirEp reliability _hints = do
                       in action $ \(ValidLocalEndPointState ch) -> do
                            idx <- modifyMVar (_transportConnections v) $ \(IncommingConnections n m) -> do
                                     let n' = succ n
-                                        c  = ZMQIncommingConnection n' ch
+                                        c  = ZMQIncommingConnection n' "local" ch
                                     return (IncommingConnections n' (M.insert n' c m), n')
                            atomically $ writeTMChan ch $ ConnectionOpened idx reliability (_localEndPointAddress ourEp)
                            return . Right $ Connection
@@ -573,7 +577,7 @@ apiConnect ourEp transport theirEp reliability _hints = do
                                  modifyMVar_ (_transportConnections v) $ \(IncommingConnections n m) -> do
                                    case idx `M.lookup` m of
                                      Nothing -> return () -- already closed
-                                     Just (ZMQIncommingConnection _ ch)  ->
+                                     Just (ZMQIncommingConnection _ _ ch)  -> -- XXX: should be local
                                        atomically $ writeTMChan ch $ ConnectionClosed idx
                                    return $ (IncommingConnections n (M.delete idx m)) -- Note incomming connections may be only valid (it seems not correct)
                              }
