@@ -29,6 +29,9 @@ import           Control.Monad
       , forever
       , replicateM_
       )
+import           Control.Monad.CatchIO
+      ( bracket 
+      )
 import           Control.Monad.IO.Class
 
 import           Data.Binary
@@ -257,29 +260,97 @@ createTransport _params host port = do
                     <$> pure addr
                     <*> newMVar (TransportValid vstate)
     closed <- newEmptyMVar
+
     try $ do
       needContinue <- newIORef True
       a <- ZMQ.runZMQ $ ZMQ.async $ do
-        -- Initialization.
-        router <- ZMQ.socket ZMQ.Router
-        ZMQ.setIdentity (ZMQ.restrict socketAddr) router
-        ZMQ.bind router (B8.unpack addr)
-
-        -- Start worker threads.
-        mon   <- ZMQ.async $ processMonitor transport router
-        liftIO $ A.link mon
-        queue <- ZMQ.async $ processQueue transport router 
-        liftIO $ A.link queue
-        mainloop vstate router needContinue
-
-        -- TODO: Close all endpoints
-        ZMQ.unbind router (B8.unpack addr)
-        ZMQ.close  router
-
-        liftIO $ do
-          modifyMVar_ (_transportState transport) $ \_ -> return TransportClosed
-          mapM_ (A.cancel) [mon, queue]
-          putMVar closed ()
+        bracket (accure  transport)
+                (release transport) $ \(router,_,_) -> repeatWhile (ZMQ.liftIO $ readIORef needContinue) $ do
+          events <- ZMQ.poll (-1) [ZMQ.Sock router [ZMQ.In] Nothing]
+          case events of
+            [] -> return ()
+            _  -> do
+              identity   <- ZMQ.receive router
+              (cmd:msgs) <- ZMQ.receiveMulti router
+              case decode' cmd of
+                MessageConnect ident -> do
+                  liftIO $ printf "[%s]: [socket] message connect %s\n" 
+                                  (B8.unpack socketAddr)
+                                  (B8.unpack ident)
+                  sendControlMessage router ident (MessageConnectOk socketAddr)
+                MessageConnectOk ident -> do
+                  liftIO $ printf "[%s]: [socket] message connect ok\n" (B8.unpack socketAddr)
+                  liftIO $ withMVar (_remoteHosts vstate) $ \h -> do
+                    case ident `M.lookup` h of
+                      Nothing -> do
+                        liftIO $ printf "[%s][ERROR]: remote host is not in list: (%s) \n" (B8.unpack socketAddr) (B8.unpack ident)
+                      Just x  -> do
+                        _ <- swapMVar (_remoteHostState x) RemoteHostValid
+                        void $ tryPutMVar (_remoteHostReady x) ()
+                MessageInitConnection theirId theirEp rel ep -> do
+                  liftIO $ printf "[%s]: message init connection: {theirId: %i, theirEp: %s, ep: %s) \n" 
+                                  (B8.unpack socketAddr)
+                                  theirId
+                                  (B8.unpack . endPointAddressToByteString $ theirEp)
+                                  (B8.unpack . endPointAddressToByteString $ ep)
+                  let epId = apiGetEndPointId ep
+                  ret <- liftIO $ withMVar (_localEndPoints vstate) $ \(LocalEndPoints _ eps) ->
+                    case epId `M.lookup` eps of
+                      Nothing -> do
+                          liftIO $ printf "[%s]: no such endpoint\n" (B8.unpack socketAddr)
+                          return Nothing -- XXX: reply with error message
+                      Just x  -> modifyMVar (_localEndPointState x) $ \s -> do
+                        case s of
+                          LocalEndPointValid (ValidLocalEndPointState chan)  -> do
+                            idx <- modifyMVar (_transportConnections vstate) $ \(IncommingConnections n m) -> do
+                              let n' = succ n
+                                  c  = ZMQIncommingConnection n' identity chan
+                              return (IncommingConnections n' (M.insert n' c m), n')
+                            atomically $ writeTMChan chan $ ConnectionOpened idx rel theirEp
+                            return (s, Just idx)
+                          LocalEndPointClosed  -> return (s, Nothing) -- XXX: reply with error message
+                  case ret of
+                    Nothing -> return () -- XXX: reply with error
+                    Just ourId -> sendControlMessage router identity (MessageInitConnectionOk theirId ourId)
+                MessageCloseConnection idx -> liftIO $ do
+                  printf "[%s]: message close connection\n" (B8.unpack socketAddr)
+                  modifyMVar_ (_transportConnections vstate) $ \i@(IncommingConnections n m) -> do
+                    case idx `M.lookup` m of
+                      Nothing -> return i -- XXX: errror no such connection
+                      Just (ZMQIncommingConnection _ ep ch) 
+                        | ep == identity -> do
+                           atomically $ writeTMChan ch $ ConnectionClosed idx
+                           return $ (IncommingConnections n (M.delete idx m))
+                        | otherwise -> return (IncommingConnections n m)
+                MessageInitConnectionOk ourId theirId -> liftIO $ do
+                  printf "[%s]: message init connection ok\n" (B8.unpack socketAddr)
+                  modifyMVar_ (_transportPending vstate) $ \pconns ->
+                    case ourId `M.lookup` (_pendingConnections pconns) of
+                        Nothing -> do
+                            liftIO $ printf "[%s]: no such connection\n" (B8.unpack socketAddr)
+                            return pconns 
+                        Just cn -> do
+                            liftIO $ printf "[%s]: found pending\n" (B8.unpack socketAddr)
+                            rd <- modifyMVar (connectionState cn) $ \st ->
+                              case st of
+                                ZMQConnectionInit -> do
+                                    liftIO $ printf "[%s]: correct state\n" (B8.unpack socketAddr)
+                                    return (ZMQConnectionValid (ValidZMQConnection theirId), True)
+                                _ -> do
+                                    liftIO $ printf "[%s]: other state\n" (B8.unpack socketAddr)
+                                    return (st, False)
+                            when rd $ putMVar (connectionReady cn) ()
+                            return (pconns{_pendingConnections=ourId `M.delete` (_pendingConnections pconns)})
+                MessageData idx -> liftIO $ do
+                  printf "[%s]: message data\n" (B8.unpack socketAddr)
+                  withMVar (_transportConnections vstate) $ \(IncommingConnections _ x) ->
+                    case idx `M.lookup` x of
+                      Nothing -> return ()
+                      Just (ZMQIncommingConnection _ idt ch)
+                        | idt == identity -> atomically $ writeTMChan ch (Received idx msgs)
+                        | otherwise -> return ()
+          liftIO $ yield
+        liftIO $ putMVar closed ()
 
       A.link a
       return $ Transport
@@ -291,8 +362,25 @@ createTransport _params host port = do
   where
     addr = B.concat ["tcp://",host, ":",port]
     socketAddr = addr
-    repeatWhile :: MonadIO m => m Bool -> m () -> m ()
-    repeatWhile f g = f >>= flip when (g >> repeatWhile f g)
+
+    accure transport = do
+      router <- ZMQ.socket ZMQ.Router
+      ZMQ.setIdentity (ZMQ.restrict socketAddr) router
+      ZMQ.bind router (B8.unpack addr)
+      mon   <- ZMQ.async $ processMonitor transport router
+      liftIO $ A.link mon
+      queue <- ZMQ.async $ processQueue transport router 
+      liftIO $ A.link queue
+      return (router, mon, queue)
+
+    release transport (router, mon, queue) = do
+      liftIO $ do
+        modifyMVar_ (_transportState transport) $ \_ -> return TransportClosed
+        mapM_ (A.cancel) [mon, queue]
+      ZMQ.unbind router (B8.unpack addr)
+      ZMQ.close router
+      -- XXX: verify that router is really closed
+
     processMonitor transport router = do
       evalMonitor <- ZMQ.monitor [ZMQ.AllEvents] router
       forever $ do
@@ -348,95 +436,6 @@ createTransport _params host port = do
           ActionCloseConnection ident cid -> do
               liftIO $ dbg' "<ActionCloseConnection>"
               sendControlMessage router ident (MessageCloseConnection cid)
-    mainloop vstate router needContinue =
-        repeatWhile (ZMQ.liftIO $ readIORef needContinue) $ do
-          events <- ZMQ.poll (-1) [ZMQ.Sock router [ZMQ.In] Nothing]
-          case events of
-            [] -> return ()
-            _  -> do
-              identity <- ZMQ.receive router
-              (cmd:msgs) <- ZMQ.receiveMulti router
-              case decode' cmd of
-                MessageConnect ident -> do
-                  liftIO $ printf "[%s]: [socket] message connect %s\n" 
-                                  (B8.unpack socketAddr)
-                                  (B8.unpack ident)
-                  sendControlMessage router ident (MessageConnectOk socketAddr)
-                MessageConnectOk ident -> do
-                  liftIO $ printf "[%s]: [socket] message connect ok\n" (B8.unpack socketAddr)
-                  liftIO $ withMVar remoteHosts $ \h -> do
-                    case ident `M.lookup` h of
-                      Nothing -> do
-                        liftIO $ printf "[%s][ERROR]: remote host is not in list: (%s) \n" (B8.unpack socketAddr) (B8.unpack ident)
-                      Just x  -> do
-                        _ <- swapMVar (_remoteHostState x) RemoteHostValid
-                        void $ tryPutMVar (_remoteHostReady x) ()
-                MessageInitConnection theirId theirEp rel ep -> do
-                  liftIO $ printf "[%s]: message init connection: {theirId: %i, theirEp: %s, ep: %s) \n" 
-                                  (B8.unpack socketAddr)
-                                  theirId
-                                  (B8.unpack . endPointAddressToByteString $ theirEp)
-                                  (B8.unpack . endPointAddressToByteString $ ep)
-                  let epId = apiGetEndPointId ep
-                  liftIO $ printf "[%s]: endpoint id is: %i \n" (B8.unpack socketAddr) (epId)
-                  ret <- liftIO $ withMVar (_localEndPoints vstate) $ \(LocalEndPoints _ eps) ->
-                     case epId `M.lookup` eps of
-                      Nothing -> do
-                          liftIO $ printf "[%s]: no such endpoint\n" (B8.unpack socketAddr)
-                          return Nothing -- XXX: reply with error message
-                      Just x  -> modifyMVar (_localEndPointState x) $ \s -> do
-                          case s of
-                            LocalEndPointValid (ValidLocalEndPointState chan)  -> do
-                              idx <- modifyMVar (_transportConnections vstate) $ \(IncommingConnections n m) -> do
-                                  let n' = succ n
-                                      c  = ZMQIncommingConnection n' identity chan
-                                  return (IncommingConnections n' (M.insert n' c m), n')
-                              atomically $ writeTMChan chan $ ConnectionOpened idx rel theirEp
-                              return (s, Just idx)
-                            LocalEndPointClosed  -> return (s, Nothing) -- XXX: reply with error message
-                  case ret of
-                    Nothing -> return () -- XXX: reply with error
-                    Just ourId -> sendControlMessage router identity (MessageInitConnectionOk theirId ourId)
-                MessageCloseConnection idx -> liftIO $ do
-                  printf "[%s]: message close connection\n" (B8.unpack socketAddr)
-                  modifyMVar_ (_transportConnections vstate) $ \i@(IncommingConnections n m) -> do
-                    case idx `M.lookup` m of
-                      Nothing -> return i -- XXX: errror no such connection
-                      Just (ZMQIncommingConnection _ ep ch) 
-                        | ep == identity -> do
-                           atomically $ writeTMChan ch $ ConnectionClosed idx
-                           return $ (IncommingConnections n (M.delete idx m))
-                        | otherwise -> return (IncommingConnections n m)
-                MessageInitConnectionOk ourId theirId -> liftIO $ do
-                  printf "[%s]: message init connection ok\n" (B8.unpack socketAddr)
-                  modifyMVar_ (_transportPending vstate) $ \pconns ->
-                    case ourId `M.lookup` (_pendingConnections pconns) of
-                        Nothing -> do
-                            liftIO $ printf "[%s]: no such connection\n" (B8.unpack socketAddr)
-                            return pconns 
-                        Just cn -> do
-                            liftIO $ printf "[%s]: found pending\n" (B8.unpack socketAddr)
-                            rd <- modifyMVar (connectionState cn) $ \st ->
-                              case st of
-                                ZMQConnectionInit -> do
-                                    liftIO $ printf "[%s]: correct state\n" (B8.unpack socketAddr)
-                                    return (ZMQConnectionValid (ValidZMQConnection theirId), True)
-                                _ -> do
-                                    liftIO $ printf "[%s]: other state\n" (B8.unpack socketAddr)
-                                    return (st, False)
-                            when rd $ putMVar (connectionReady cn) ()
-                            return (pconns{_pendingConnections=ourId `M.delete` (_pendingConnections pconns)})
-                MessageData idx -> liftIO $ do
-                  printf "[%s]: message data\n" (B8.unpack socketAddr)
-                  withMVar (_transportConnections vstate) $ \(IncommingConnections _ x) ->
-                    case idx `M.lookup` x of
-                      Nothing -> return ()
-                      Just (ZMQIncommingConnection _ idt ch)
-                        | idt == identity -> atomically $ writeTMChan ch (Received idx msgs)
-                        | otherwise -> return ()
-          liftIO $ yield
-      where
-        remoteHosts = _remoteHosts vstate
 
 
 sendControlMessage router ident msg = ZMQ.sendMulti router $ ident :| [encode' msg, ""]
@@ -627,3 +626,6 @@ decode' :: Binary a => ByteString -> a
 decode' s = decode . BL.fromChunks $ [s]
 
 dbg' = liftIO . putStrLn
+
+repeatWhile :: MonadIO m => m Bool -> m () -> m ()
+repeatWhile f g = f >>= flip when (g >> repeatWhile f g)
