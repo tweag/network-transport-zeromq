@@ -4,6 +4,7 @@ module Network.Transport.ZeroMQ
   ( -- * Main API
     createTransport
   , ZeroMQParameters(..)
+  , ZeroMQAuthType(..)
   , defaultZeroMQParameters
   -- * Internals
   -- * Design
@@ -49,6 +50,7 @@ import           Data.Void
 import           GHC.Generics 
 
 import Network.Transport
+import Network.Transport.ZeroMQ.Types
 import qualified System.ZMQ4.Monadic as ZMQ
 
 import           Text.Printf
@@ -60,11 +62,6 @@ deriving instance Generic Reliability
 deriving instance Typeable Reliability
 instance Binary Reliability
 
--- | Parameters for ZeroMQ connection
-data ZeroMQParameters = ZeroMQParameters
-
-defaultZeroMQParameters :: ZeroMQParameters
-defaultZeroMQParameters = ZeroMQParameters
 
 -- XXX: we may want to introduce a new level of indirection: socket -> endpoint
 -- XXX: when incrementing endpoint we need to check that we have no node
@@ -249,7 +246,7 @@ createTransport :: ZeroMQParameters -- ^ Transport features.
                 -> ByteString       -- ^ Host.
                 -> ByteString       -- ^ Port.
                 -> IO (Either (TransportError Void) Transport)
-createTransport _params host port = do
+createTransport params host port = do
     vstate <- ValidTransportState
                  <$> newMVar (LocalEndPoints 0 M.empty)
                  <*> newMVar (M.empty)
@@ -323,26 +320,28 @@ createTransport _params host port = do
                            return $ (IncommingConnections n (M.delete idx m))
                         | otherwise -> return (IncommingConnections n m)
                 MessageInitConnectionOk ourId theirId -> liftIO $ do
-                  printf "[%s]: message init connection ok\n" (B8.unpack socketAddr)
+                  printf "[%s]: [mainloop] message init connection ok: {ourId: %i, theirId: %i}\n"
+                        (B8.unpack socketAddr)
+                        ourId
+                        theirId
                   modifyMVar_ (_transportPending vstate) $ \pconns ->
                     case ourId `M.lookup` (_pendingConnections pconns) of
                         Nothing -> do
-                            liftIO $ printf "[%s]: no such connection\n" (B8.unpack socketAddr)
+                            liftIO $ printf "[%s]: [mainloop] pending connection not found\n" (B8.unpack socketAddr)
                             return pconns 
                         Just cn -> do
-                            liftIO $ printf "[%s]: found pending\n" (B8.unpack socketAddr)
                             rd <- modifyMVar (connectionState cn) $ \st ->
                               case st of
                                 ZMQConnectionInit -> do
-                                    liftIO $ printf "[%s]: correct state\n" (B8.unpack socketAddr)
+                                    liftIO $ printf "[%s]: [mainloop] connection initialized\n" (B8.unpack socketAddr)
                                     return (ZMQConnectionValid (ValidZMQConnection theirId), True)
                                 _ -> do
-                                    liftIO $ printf "[%s]: other state\n" (B8.unpack socketAddr)
+                                    liftIO $ printf "[%s]: [mainloop] incorrect state\n" (B8.unpack socketAddr)
                                     return (st, False)
                             when rd $ putMVar (connectionReady cn) ()
                             return (pconns{_pendingConnections=ourId `M.delete` (_pendingConnections pconns)})
                 MessageData idx -> liftIO $ do
-                  printf "[%s]: message data\n" (B8.unpack socketAddr)
+                  printf "[%s]: [mainloop] message data\n" (B8.unpack socketAddr)
                   withMVar (_transportConnections vstate) $ \(IncommingConnections _ x) ->
                     case idx `M.lookup` x of
                       Nothing -> return ()
@@ -365,6 +364,15 @@ createTransport _params host port = do
 
     accure transport = do
       router <- ZMQ.socket ZMQ.Router
+      case authorizationType params of
+          ZeroMQNoAuth -> return ()
+          ZeroMQAuthPlain p u -> do
+              ZMQ.setPlainServer True router
+              ZMQ.setPlainPassword (ZMQ.restrict p) router
+              ZMQ.setPlainUserName (ZMQ.restrict u) router
+      ZMQ.setSendHighWM (ZMQ.restrict (highWaterMark params)) router
+      ZMQ.setLinger (ZMQ.restrict (lingerPeriod params)) router
+
       ZMQ.setIdentity (ZMQ.restrict socketAddr) router
       ZMQ.bind router (B8.unpack addr)
       mon   <- ZMQ.async $ processMonitor transport router
@@ -424,7 +432,9 @@ createTransport _params host port = do
               -- closed.
               undefined
           ActionConnect ident conn ourEp rel addr' -> do
-              liftIO $ dbg' "<ActionConnect>"
+              liftIO $ printf "[%s]: [internal] message {to:%s}\n"
+                              (B8.unpack socketAddr)
+                              (B8.unpack . endPointAddressToByteString $ addr')
               idx <- liftIO $ modifyMVar ps $ \(PendingConnections n m) ->
                 let n' = succ n
                     m'  = M.insert n' conn m
@@ -436,7 +446,6 @@ createTransport _params host port = do
           ActionCloseConnection ident cid -> do
               liftIO $ dbg' "<ActionCloseConnection>"
               sendControlMessage router ident (MessageCloseConnection cid)
-
 
 sendControlMessage router ident msg = ZMQ.sendMulti router $ ident :| [encode' msg, ""]
 
