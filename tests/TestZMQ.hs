@@ -29,7 +29,7 @@ testTransport' newTransport = do
     , ("ConnectToSelfTwice",    testConnectToSelfTwice transport numPings)
 --    , ("CloseSelf",             testCloseSelf newTransport)
 --    , ("CloseEndPoint",         testCloseEndPoint transport numPings)
---    , ("CloseTransport",        testCloseTransport newTransport)
+    , ("CloseTransport",        testCloseTransport newTransport)
     , ("ConnectClosedEndPoint", testConnectClosedEndPoint transport)
 --    , ("ExceptionOnReceive",    testExceptionOnReceive newTransport)
 --    , ("SendException",         testSendException newTransport)
