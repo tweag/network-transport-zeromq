@@ -260,96 +260,97 @@ createTransport params host port = do
 
     try $ do
       needContinue <- newIORef True
-      a <- ZMQ.runZMQ $ ZMQ.async $ do
-        bracket (accure  transport)
-                (release transport) $ \(router,_,_) -> repeatWhile (ZMQ.liftIO $ readIORef needContinue) $ do
-          events <- ZMQ.poll (-1) [ZMQ.Sock router [ZMQ.In] Nothing]
-          case events of
-            [] -> return ()
-            _  -> do
-              identity   <- ZMQ.receive router
-              (cmd:msgs) <- ZMQ.receiveMulti router
-              case decode' cmd of
-                MessageConnect ident -> do
-                  liftIO $ printf "[%s]: [socket] message connect %s\n" 
-                                  (B8.unpack socketAddr)
-                                  (B8.unpack ident)
-                  sendControlMessage router ident (MessageConnectOk socketAddr)
-                MessageConnectOk ident -> do
-                  liftIO $ printf "[%s]: [socket] message connect ok\n" (B8.unpack socketAddr)
-                  liftIO $ withMVar (_remoteHosts vstate) $ \h -> do
-                    case ident `M.lookup` h of
-                      Nothing -> do
-                        liftIO $ printf "[%s][ERROR]: remote host is not in list: (%s) \n" (B8.unpack socketAddr) (B8.unpack ident)
-                      Just x  -> do
-                        _ <- swapMVar (_remoteHostState x) RemoteHostValid
-                        void $ tryPutMVar (_remoteHostReady x) ()
-                MessageInitConnection theirId theirEp rel ep -> do
-                  liftIO $ printf "[%s]: message init connection: {theirId: %i, theirEp: %s, ep: %s) \n" 
-                                  (B8.unpack socketAddr)
-                                  theirId
-                                  (B8.unpack . endPointAddressToByteString $ theirEp)
-                                  (B8.unpack . endPointAddressToByteString $ ep)
-                  let epId = apiGetEndPointId ep
-                  ret <- liftIO $ withMVar (_localEndPoints vstate) $ \(LocalEndPoints _ eps) ->
-                    case epId `M.lookup` eps of
-                      Nothing -> do
-                          liftIO $ printf "[%s]: no such endpoint\n" (B8.unpack socketAddr)
-                          return Nothing -- XXX: reply with error message
-                      Just x  -> modifyMVar (_localEndPointState x) $ \s -> do
-                        case s of
-                          LocalEndPointValid (ValidLocalEndPointState chan)  -> do
-                            idx <- modifyMVar (_transportConnections vstate) $ \(IncommingConnections n m) -> do
-                              let n' = succ n
-                                  c  = ZMQIncommingConnection n' identity chan
-                              return (IncommingConnections n' (M.insert n' c m), n')
-                            atomically $ writeTMChan chan $ ConnectionOpened idx rel theirEp
-                            return (s, Just idx)
-                          LocalEndPointClosed  -> return (s, Nothing) -- XXX: reply with error message
-                  case ret of
-                    Nothing -> return () -- XXX: reply with error
-                    Just ourId -> sendControlMessage router identity (MessageInitConnectionOk theirId ourId)
-                MessageCloseConnection idx -> liftIO $ do
-                  printf "[%s]: message close connection\n" (B8.unpack socketAddr)
-                  modifyMVar_ (_transportConnections vstate) $ \i@(IncommingConnections n m) -> do
-                    case idx `M.lookup` m of
-                      Nothing -> return i -- XXX: errror no such connection
-                      Just (ZMQIncommingConnection _ ep ch) 
-                        | ep == identity -> do
-                           atomically $ writeTMChan ch $ ConnectionClosed idx
-                           return $ (IncommingConnections n (M.delete idx m))
-                        | otherwise -> return (IncommingConnections n m)
-                MessageInitConnectionOk ourId theirId -> liftIO $ do
-                  printf "[%s]: [mainloop] message init connection ok: {ourId: %i, theirId: %i}\n"
-                        (B8.unpack socketAddr)
-                        ourId
-                        theirId
-                  modifyMVar_ (_transportPending vstate) $ \pconns ->
-                    case ourId `M.lookup` (_pendingConnections pconns) of
-                        Nothing -> do
-                            liftIO $ printf "[%s]: [mainloop] pending connection not found\n" (B8.unpack socketAddr)
-                            return pconns 
-                        Just cn -> do
-                            rd <- modifyMVar (connectionState cn) $ \st ->
-                              case st of
-                                ZMQConnectionInit -> do
-                                    liftIO $ printf "[%s]: [mainloop] connection initialized\n" (B8.unpack socketAddr)
-                                    return (ZMQConnectionValid (ValidZMQConnection theirId), True)
-                                _ -> do
-                                    liftIO $ printf "[%s]: [mainloop] incorrect state\n" (B8.unpack socketAddr)
-                                    return (st, False)
-                            when rd $ putMVar (connectionReady cn) ()
-                            return (pconns{_pendingConnections=ourId `M.delete` (_pendingConnections pconns)})
-                MessageData idx -> liftIO $ do
-                  printf "[%s]: [mainloop] message data\n" (B8.unpack socketAddr)
-                  withMVar (_transportConnections vstate) $ \(IncommingConnections _ x) ->
-                    case idx `M.lookup` x of
-                      Nothing -> return ()
-                      Just (ZMQIncommingConnection _ idt ch)
-                        | idt == identity -> atomically $ writeTMChan ch (Received idx msgs)
-                        | otherwise -> return ()
-          liftIO $ yield
-        liftIO $ putMVar closed ()
+      a <- A.async $ do
+        ZMQ.runZMQ $
+            bracket (accure  transport)
+                    (release transport) $ \(router,_,_) -> repeatWhile (ZMQ.liftIO $ readIORef needContinue) $ do
+              events <- ZMQ.poll (-1) [ZMQ.Sock router [ZMQ.In] Nothing]
+              case events of
+                [] -> return ()
+                _  -> do
+                  identity   <- ZMQ.receive router
+                  (cmd:msgs) <- ZMQ.receiveMulti router
+                  case decode' cmd of
+                    MessageConnect ident -> do
+                      liftIO $ printf "[%s]: [socket] message connect %s\n" 
+                                      (B8.unpack socketAddr)
+                                      (B8.unpack ident)
+                      sendControlMessage router ident (MessageConnectOk socketAddr)
+                    MessageConnectOk ident -> do
+                      liftIO $ printf "[%s]: [socket] message connect ok\n" (B8.unpack socketAddr)
+                      liftIO $ withMVar (_remoteHosts vstate) $ \h -> do
+                        case ident `M.lookup` h of
+                          Nothing -> do
+                            liftIO $ printf "[%s][ERROR]: remote host is not in list: (%s) \n" (B8.unpack socketAddr) (B8.unpack ident)
+                          Just x  -> do
+                            _ <- swapMVar (_remoteHostState x) RemoteHostValid
+                            void $ tryPutMVar (_remoteHostReady x) ()
+                    MessageInitConnection theirId theirEp rel ep -> do
+                      liftIO $ printf "[%s]: message init connection: {theirId: %i, theirEp: %s, ep: %s) \n" 
+                                      (B8.unpack socketAddr)
+                                      theirId
+                                      (B8.unpack . endPointAddressToByteString $ theirEp)
+                                      (B8.unpack . endPointAddressToByteString $ ep)
+                      let epId = apiGetEndPointId ep
+                      ret <- liftIO $ withMVar (_localEndPoints vstate) $ \(LocalEndPoints _ eps) ->
+                        case epId `M.lookup` eps of
+                          Nothing -> do
+                              liftIO $ printf "[%s]: no such endpoint\n" (B8.unpack socketAddr)
+                              return Nothing -- XXX: reply with error message
+                          Just x  -> modifyMVar (_localEndPointState x) $ \s -> do
+                            case s of
+                              LocalEndPointValid (ValidLocalEndPointState chan)  -> do
+                                idx <- modifyMVar (_transportConnections vstate) $ \(IncommingConnections n m) -> do
+                                  let n' = succ n
+                                      c  = ZMQIncommingConnection n' identity chan
+                                  return (IncommingConnections n' (M.insert n' c m), n')
+                                atomically $ writeTMChan chan $ ConnectionOpened idx rel theirEp
+                                return (s, Just idx)
+                              LocalEndPointClosed  -> return (s, Nothing) -- XXX: reply with error message
+                      case ret of
+                        Nothing -> return () -- XXX: reply with error
+                        Just ourId -> sendControlMessage router identity (MessageInitConnectionOk theirId ourId)
+                    MessageCloseConnection idx -> liftIO $ do
+                      printf "[%s]: message close connection\n" (B8.unpack socketAddr)
+                      modifyMVar_ (_transportConnections vstate) $ \i@(IncommingConnections n m) -> do
+                        case idx `M.lookup` m of
+                          Nothing -> return i -- XXX: errror no such connection
+                          Just (ZMQIncommingConnection _ ep ch) 
+                            | ep == identity -> do
+                               atomically $ writeTMChan ch $ ConnectionClosed idx
+                               return $ (IncommingConnections n (M.delete idx m))
+                            | otherwise -> return (IncommingConnections n m)
+                    MessageInitConnectionOk ourId theirId -> liftIO $ do
+                      printf "[%s]: [mainloop] message init connection ok: {ourId: %i, theirId: %i}\n"
+                            (B8.unpack socketAddr)
+                            ourId
+                            theirId
+                      modifyMVar_ (_transportPending vstate) $ \pconns ->
+                        case ourId `M.lookup` (_pendingConnections pconns) of
+                            Nothing -> do
+                                liftIO $ printf "[%s]: [mainloop] pending connection not found\n" (B8.unpack socketAddr)
+                                return pconns 
+                            Just cn -> do
+                                rd <- modifyMVar (connectionState cn) $ \st ->
+                                  case st of
+                                    ZMQConnectionInit -> do
+                                        liftIO $ printf "[%s]: [mainloop] connection initialized\n" (B8.unpack socketAddr)
+                                        return (ZMQConnectionValid (ValidZMQConnection theirId), True)
+                                    _ -> do
+                                        liftIO $ printf "[%s]: [mainloop] incorrect state\n" (B8.unpack socketAddr)
+                                        return (st, False)
+                                when rd $ putMVar (connectionReady cn) ()
+                                return (pconns{_pendingConnections=ourId `M.delete` (_pendingConnections pconns)})
+                    MessageData idx -> liftIO $ do
+                      printf "[%s]: [mainloop] message data\n" (B8.unpack socketAddr)
+                      withMVar (_transportConnections vstate) $ \(IncommingConnections _ x) ->
+                        case idx `M.lookup` x of
+                          Nothing -> return ()
+                          Just (ZMQIncommingConnection _ idt ch)
+                            | idt == identity -> atomically $ writeTMChan ch (Received idx msgs)
+                            | otherwise -> return ()
+              liftIO $ yield
+        putMVar closed ()
 
       A.link a
       return $ Transport
@@ -398,12 +399,9 @@ createTransport params host port = do
             liftIO $ printf "[%s]: [monitor] connected %s\n" (B8.unpack socketAddr) (B8.unpack h)
             -- We are only replying with our address to the client, as we
             -- can't disconnect him.
-            --
-            -- XXX: fix this stuff
             void $ ZMQ.async $
-              let test = liftIO $ withMVar (_transportState transport) $ \case
-                    TransportClosed  -> return False
-                    TransportValid v ->
+              let test = liftIO $
+                    withTransportState transport (return False) $ \v ->
                       withMVar (_remoteHosts v) $ \m ->
                         case h `M.lookup` m of
                           Nothing -> return False 
@@ -455,24 +453,22 @@ sendMessage router ident cn msg = ZMQ.sendMulti router $ ident :| (encode' (Mess
 apiNewEndPoint :: ZeroMQTransport -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
 apiNewEndPoint transport = do
     chan <- newTMChanIO
-    ep <- withMVar (_transportState transport) $ \st ->
-      case st of
-        TransportClosed ->
-           throwIO $ userError "Transport is closed"  --- XXX: should we return left with error here?
-        TransportValid (ValidTransportState leps _ _ _ _) ->
-           modifyMVar leps $ \(LocalEndPoints nxt eps) ->
-             let nxt' = succ nxt
-                 addr = EndPointAddress $
-                          B.concat 
-                            [ transportAddress transport
-                            , "/"
-                            , B8.pack $ show nxt' ]
-             in do
-                ep <- LocalEndPoint 
-                        <$> pure addr
-                        <*> newMVar (LocalEndPointValid (ValidLocalEndPointState chan))
-                let eps' = M.insert nxt' ep eps
-                return (LocalEndPoints nxt' eps', ep)
+    ep <- withTransportState transport
+                             (throwIO $ userError "Transport is closed") -- XXX: return left
+                             $ \(ValidTransportState leps _ _ _ _) ->
+            modifyMVar leps $ \(LocalEndPoints nxt eps) ->
+              let nxt' = succ nxt
+                  addr = EndPointAddress $
+                           B.concat 
+                             [ transportAddress transport
+                             , "/"
+                             , B8.pack $ show nxt' ]
+              in do
+                 ep <- LocalEndPoint 
+                         <$> pure addr
+                         <*> newMVar (LocalEndPointValid (ValidLocalEndPointState chan))
+                 let eps' = M.insert nxt' ep eps
+                 return (LocalEndPoints nxt' eps', ep)
     return . Right $ EndPoint
       { receive = atomically $ do
           mx <- readTMChan chan
@@ -504,36 +500,29 @@ apiConnect ourEp transport theirEp reliability _hints = do
         then mkLocalConnection
         else do
             -- printf "[%s] connecting to <%s>\n" (B8.unpack . endPointAddressToByteString $ ourEp) (B8.unpack uri)
-            host <- withMVar (_transportState transport) $ \state ->
-              case state of
-                TransportClosed  -> do
-                    error "transport is closed" -- TODO: return Left
-                TransportValid v -> do
-                  dbg' "transport is valid."
-                  modifyMVar (_remoteHosts v) $ \m -> do
-                    case uri `M.lookup` m of
-                      Nothing -> do
-                        dbg' "host not found"
-                        x <- RemoteHost <$> pure uri
-                                        <*> newMVar RemoteHostPending
-                                        <*> newEmptyMVar
-                        writeChan (transportChannel v)
-                                  (ActionConnectHost uri)
-                        return (M.insert uri x m, x)
-                      Just x -> return (m,x)
---            printf "[%s] waiting for connection to remote\n" (B8.unpack . endPointAddressToByteString $ ourEp)
+            host <- withTransportState transport
+				       (error "transport is closed") -- XXX: return Left
+				       $ \v -> do
+              modifyMVar (_remoteHosts v) $ \m -> do
+                case uri `M.lookup` m of
+                  Nothing -> do
+                    x <- RemoteHost <$> pure uri
+                                    <*> newMVar RemoteHostPending
+                                    <*> newEmptyMVar
+                    writeChan (transportChannel v)
+                              (ActionConnectHost uri)
+                    return (M.insert uri x m, x)
+                  Just x -> return (m,x)
             _    <- readMVar (_remoteHostReady host)
---            printf "[%s] creating connection\n" (B8.unpack . endPointAddressToByteString $ ourEp)
             conn <- ZMQConnection <$> pure host
                                   <*> newMVar ZMQConnectionInit
                                   <*> newEmptyMVar
-            etr <- withMVar (_transportState transport) $ \state ->
-              case state of
-                TransportClosed -> return $ Left $ TransportError ConnectFailed "Transport is closed" 
-                TransportValid v -> do
-                  writeChan (transportChannel v)
-                            (ActionConnect (_remoteHostUrl host) conn ourEp reliability theirEp)
-                  return $ Right ()
+            etr <- withTransportState transport
+                                      (return $ Left $ TransportError ConnectFailed "Transport is closed")
+                            	      $ \v -> do
+                       writeChan (transportChannel v)
+                                 (ActionConnect (_remoteHostUrl host) conn ourEp reliability theirEp)
+                       return $ Right ()
             case etr of
               Left te -> return (Left te)
               Right _ -> do
@@ -545,50 +534,49 @@ apiConnect ourEp transport theirEp reliability _hints = do
   where
     eid = apiGetEndPointId theirEp
     oid = apiGetEndPointId $ _localEndPointAddress ourEp
-    mkLocalConnection = do
-        withMVar (_transportState transport) $ \case
-          TransportClosed -> return $ Left $ TransportError ConnectFailed "Transport is closed."
-          TransportValid v -> do
-            withMVar (_localEndPoints v) $ \(LocalEndPoints _ eps) -> do
-              case eid `M.lookup` eps of
-                Nothing -> return $ Left $ TransportError ConnectFailed "Endpoint not found."
-                Just  e -> do
-                  withMVar (_localEndPointState ourEp) $ \case
-                    LocalEndPointClosed -> return $ Left $ TransportError ConnectFailed "Our endpoint is closed."
-                    LocalEndPointValid ourV ->
-                      let action = 
-                            if _localEndPointAddress ourEp == theirEp
-                            then (\f -> f ourV)
-                            else (\f -> withMVar (_localEndPointState e) $ \case
-                                          LocalEndPointClosed -> return $ Left $ TransportError ConnectNotFound "Their endpoint is closed."
-                                          LocalEndPointValid theirV -> f theirV)
-                      in action $ \(ValidLocalEndPointState ch) -> do
-                           idx <- modifyMVar (_transportConnections v) $ \(IncommingConnections n m) -> do
-                                    let n' = succ n
-                                        c  = ZMQIncommingConnection n' "local" ch
-                                    return (IncommingConnections n' (M.insert n' c m), n')
-                           atomically $ writeTMChan ch $ ConnectionOpened idx reliability (_localEndPointAddress ourEp)
-                           return . Right $ Connection
-                             { send = \bs -> do
-                                 withMVar (_localEndPointState ourEp) $ \case
-                                   LocalEndPointClosed -> return $ Left $ TransportError SendFailed "Our endpoint is closed."
-                                   LocalEndPointValid _ -> withMVar (_transportConnections v) $ \(IncommingConnections n m) -> do
-                                     case idx `M.lookup` m of
-                                       Nothing -> return $ Left $ TransportError SendClosed "Connection is closed."
-                                       Just _ ->
-                                         atomically $ do
-                                           closed <- isClosedTMChan ch
-                                           if closed
-                                           then return $ Left $ TransportError SendFailed "Connection is closed." 
-                                           else writeTMChan ch (Received idx bs) >> return (Right ())
-                             , close =
-                                 modifyMVar_ (_transportConnections v) $ \(IncommingConnections n m) -> do
-                                   case idx `M.lookup` m of
-                                     Nothing -> return () -- already closed
-                                     Just (ZMQIncommingConnection _ _ ch)  -> -- XXX: should be local
-                                       atomically $ writeTMChan ch $ ConnectionClosed idx
-                                   return $ (IncommingConnections n (M.delete idx m)) -- Note incomming connections may be only valid (it seems not correct)
-                             }
+    mkLocalConnection = withTransportState transport
+                                           (return $ Left $ TransportError ConnectFailed "Transport is closed.")
+                                           $ \v -> do
+       withMVar (_localEndPoints v) $ \(LocalEndPoints _ eps) -> do
+         case eid `M.lookup` eps of
+           Nothing -> return $ Left $ TransportError ConnectFailed "Endpoint not found."
+           Just  e -> do
+             withMVar (_localEndPointState ourEp) $ \case
+                LocalEndPointClosed -> return $ Left $ TransportError ConnectFailed "Our endpoint is closed."
+                LocalEndPointValid ourV ->
+                  let action = 
+                        if _localEndPointAddress ourEp == theirEp
+                        then (\f -> f ourV)
+                        else (\f -> withMVar (_localEndPointState e) $ \case
+                                       LocalEndPointClosed -> return $ Left $ TransportError ConnectNotFound "Their endpoint is closed."
+                                       LocalEndPointValid theirV -> f theirV)
+                  in action $ \(ValidLocalEndPointState ch) -> do
+                       idx <- modifyMVar (_transportConnections v) $ \(IncommingConnections n m) -> do
+                                let n' = succ n
+                                    c  = ZMQIncommingConnection n' "local" ch
+                                return (IncommingConnections n' (M.insert n' c m), n')
+                       atomically $ writeTMChan ch $ ConnectionOpened idx reliability (_localEndPointAddress ourEp)
+                       return . Right $ Connection
+                         { send = \bs -> do
+                             withMVar (_localEndPointState ourEp) $ \case
+                               LocalEndPointClosed -> return $ Left $ TransportError SendFailed "Our endpoint is closed."
+                               LocalEndPointValid _ -> withMVar (_transportConnections v) $ \(IncommingConnections n m) -> do
+                                 case idx `M.lookup` m of
+                                   Nothing -> return $ Left $ TransportError SendClosed "Connection is closed."
+                                   Just _ ->
+                                     atomically $ do
+                                       closed <- isClosedTMChan ch
+                                       if closed
+                                       then return $ Left $ TransportError SendFailed "Connection is closed." 
+                                       else writeTMChan ch (Received idx bs) >> return (Right ())
+                         , close =
+                             modifyMVar_ (_transportConnections v) $ \(IncommingConnections n m) -> do
+                               case idx `M.lookup` m of
+                                 Nothing -> return () -- already closed
+                                 Just (ZMQIncommingConnection _ _ ch)  -> -- XXX: should be local
+                                   atomically $ writeTMChan ch $ ConnectionClosed idx
+                               return $ (IncommingConnections n (M.delete idx m)) -- Note incomming connections may be only valid (it seems not correct)
+                         }
 
 apiSend :: ZeroMQTransport -> ZMQConnection -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
 apiSend transport connection bs = do
@@ -609,16 +597,14 @@ apiSend transport connection bs = do
 
 apiCloseConnection :: ZeroMQTransport -> ZMQConnection -> IO ()
 apiCloseConnection transport connection = do
-    withMVar (connectionState connection) $ \state ->
-      case state of 
-        ZMQConnectionValid (ValidZMQConnection cid) ->
-          withMVar (_transportState transport) $ \state' ->
-            case state' of
-              TransportClosed -> return ()
-              TransportValid v -> do
-                writeChan (transportChannel v)
-                          (ActionCloseConnection hid cid)
-        _ -> return () -- FIXME
+    withTransportState transport 
+                       (return ())
+                       $ \v -> 
+        withMVar (connectionState connection) $ \case
+          ZMQConnectionValid (ValidZMQConnection cid) ->
+             writeChan (transportChannel v)
+                       (ActionCloseConnection hid cid)
+          _ -> return ()
   where
     hid = _remoteHostUrl $ connectionHost connection
 
@@ -636,5 +622,11 @@ decode' s = decode . BL.fromChunks $ [s]
 
 dbg' = liftIO . putStrLn
 
+-- Helpers
+
 repeatWhile :: MonadIO m => m Bool -> m () -> m ()
 repeatWhile f g = f >>= flip when (g >> repeatWhile f g)
+
+withTransportState t err f = withMVar (_transportState t) $ \case
+  TransportClosed -> err
+  TransportValid v -> f v
