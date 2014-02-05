@@ -302,14 +302,7 @@ createTransport params host port = do
                         Just ourId -> sendControlMessage router identity (MessageInitConnectionOk theirId ourId)
                     MessageCloseConnection idx -> liftIO $ do
                       printf "[%s]: message close connection\n" (B8.unpack socketAddr)
-                      modifyMVar_ (_transportConnections vstate) $ \i@(Counter n m) -> do
-                        case idx `M.lookup` m of
-                          Nothing -> return i -- XXX: errror no such connection
-                          Just (ZMQIncommingConnection _ ep ch) 
-                            | ep == identity -> do
-                               atomically $ writeTMChan ch $ ConnectionClosed idx
-                               return (Counter n (M.delete idx m))
-                            | otherwise -> return (Counter n m)
+                      closeIncommingConnection vstate idx identity
                     MessageInitConnectionOk ourId theirId -> liftIO $ do
                       printf "[%s]: [mainloop] message init connection ok: {ourId: %i, theirId: %i}\n"
                             (B8.unpack socketAddr)
@@ -415,10 +408,8 @@ createTransport params host port = do
                               ix
               sendMessage router ident ix message
           ActionCloseEP _ident _addr -> do
-              liftIO $ dbg' "<ActionCloseEP>"
-              -- Notify the other side about the fact that connection is
-              -- closed.
-              undefined
+              liftIO $ printf "[%s]: [internal] action close ep" (B8.unpack socketAddr)
+              return ()
           ActionConnect ident conn ourEp rel addr' -> do
               liftIO $ printf "[%s]: [internal] message {to:%s}\n"
                               (B8.unpack socketAddr)
@@ -429,7 +420,7 @@ createTransport params host port = do
               liftIO $ printf "[%s]: ActionConnectHost\n" (B8.unpack socketAddr)
               ZMQ.connect router (B8.unpack ident)
           ActionCloseConnection ident cid -> do
-              liftIO $ dbg' "<ActionCloseConnection>"
+              liftIO $ printf "[%s]: [internal] action close connection" (B8.unpack socketAddr)
               sendControlMessage router ident (MessageCloseConnection cid)
 
 sendControlMessage router ident msg = ZMQ.sendMulti router $ ident :| [encode' msg, ""]
@@ -539,7 +530,7 @@ apiConnect ourEp transport theirEp reliability _hints = do
                                        LocalEndPointValid theirV -> f theirV)
                   in action $ \(ValidLocalEndPointState ch) -> do
                        idx <- modifyMVar (_transportConnections v) $
-		       	        nextElement' (const $ return False)
+		       	                nextElement' (const $ return False)
                                              (\n' -> ZMQIncommingConnection n' "local" ch)
                        atomically $ writeTMChan ch $ ConnectionOpened idx reliability (_localEndPointAddress ourEp)
                        return . Right $ Connection
@@ -555,13 +546,7 @@ apiConnect ourEp transport theirEp reliability _hints = do
                                        if closed
                                        then return $ Left $ TransportError SendFailed "Connection is closed." 
                                        else writeTMChan ch (Received idx bs) >> return (Right ())
-                         , close =
-                             modifyMVar_ (_transportConnections v) $ \(Counter n m) -> do
-                               case idx `M.lookup` m of
-                                 Nothing -> return () -- already closed
-                                 Just (ZMQIncommingConnection _ _ ch)  -> -- XXX: should be local
-                                   atomically $ writeTMChan ch $ ConnectionClosed idx
-                               return $ (Counter n (M.delete idx m)) -- Note incomming connections may be only valid (it seems not correct)
+                         , close = closeIncommingConnection v idx "local"
                          }
 
 apiSend :: ZeroMQTransport -> ZMQConnection -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
@@ -594,6 +579,20 @@ apiCloseConnection transport connection = do
   where
     hid = _remoteHostUrl $ connectionHost connection
 
+
+
+closeIncommingConnection :: ValidTransportState
+                         -> ConnectionId -> ByteString -> IO ()
+closeIncommingConnection v idx ident =
+    modifyMVar_ (_transportConnections v) $ \i@(Counter n m) -> do
+      case idx `M.lookup` m of
+        Nothing -> return i -- XXX: signal error
+        Just (ZMQIncommingConnection _ ep ch)
+          | ep == ident -> do
+              atomically $ writeTMChan ch $ ConnectionClosed idx
+              return (Counter n (M.delete idx m))
+          | otherwise -> return i
+
 apiGetUri :: EndPointAddress -> Reliability -> ByteString
 apiGetUri addr _rel = B8.init $ fst $ B8.breakEnd (=='/') $ endPointAddressToByteString addr -- XXX: properly support reliability
 
@@ -606,13 +605,15 @@ encode' = B.concat . BL.toChunks . encode
 decode' :: Binary a => ByteString -> a
 decode' s = decode . BL.fromChunks $ [s]
 
-dbg' = liftIO . putStrLn
-
 -- Helpers
 
 repeatWhile :: MonadIO m => m Bool -> m () -> m ()
 repeatWhile f g = f >>= flip when (g >> repeatWhile f g)
 
+withTransportState :: ZeroMQTransport -> IO a -> (ValidTransportState -> IO a) -> IO a
 withTransportState t err f = withMVar (_transportState t) $ \case
   TransportClosed -> err
   TransportValid v -> f v
+
+
+

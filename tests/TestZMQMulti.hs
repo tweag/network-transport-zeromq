@@ -37,7 +37,7 @@ testTransport' = do
 --    , ("Kill",                  testKill newTransport 1000)
     ]
   where
-    numPings = 1000 :: Int
+    numPings = 100 :: Int
     newTransport h p = (either (Left . show) (Right) <$> createTransport defaultZeroMQParameters h p)
 
 
