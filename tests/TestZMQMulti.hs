@@ -22,9 +22,9 @@ testTransport' = do
     , ("CloseOneConnection",    testCloseOneConnection transport1 transport2 numPings)
     , ("CloseOneDirection",     testCloseOneDirection transport1 transport2 numPings)
     , ("CloseReopen",           testCloseReopen transport1 transport2 numPings)
---    , ("ParallelConnects",      testParallelConnects transport numPings)
---    , ("SendAfterClose",        testSendAfterClose transport 100)
---    , ("Crossing",              testCrossing transport 10)
+    , ("ParallelConnects",      testParallelConnects transport1 transport2 numPings)
+    , ("SendAfterClose",        testSendAfterClose transport1 transport2 100)
+    , ("Crossing",              testCrossing transport1 transport2 10)
 --    , ("CloseTwice",            testCloseTwice transport 100)
 --    , ("ConnectToSelf",         testConnectToSelf transport numPings)
 --    , ("ConnectToSelfTwice",    testConnectToSelfTwice transport numPings)
@@ -37,7 +37,7 @@ testTransport' = do
 --    , ("Kill",                  testKill newTransport 1000)
     ]
   where
-    numPings = 100 :: Int
+    numPings = 10000 :: Int
     newTransport h p = (either (Left . show) (Right) <$> createTransport defaultZeroMQParameters h p)
 
 

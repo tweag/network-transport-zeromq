@@ -392,15 +392,14 @@ testParallelConnects transport1 transport2 numPings = do
 
   takeMVar done
 
-{-
 -- | Test that sending on a closed connection gives an error
-testSendAfterClose :: Transport -> Int -> IO ()
-testSendAfterClose transport numRepeats = do
-  server <- spawn transport echoServer
+testSendAfterClose :: Transport -> Transport -> Int -> IO ()
+testSendAfterClose transport1 transport2 numRepeats = do
+  server <- spawn transport1 echoServer
   clientDone <- newEmptyMVar
 
   forkTry $ do
-    Right endpoint <- newEndPoint transport
+    Right endpoint <- newEndPoint transport2
 
     -- We request two lightweight connections
     replicateM numRepeats $ do
@@ -424,6 +423,7 @@ testSendAfterClose transport numRepeats = do
 
   takeMVar clientDone
 
+{-
 -- | Test that closing the same connection twice has no effect
 testCloseTwice :: Transport -> Int -> IO ()
 testCloseTwice transport numRepeats = do
@@ -877,12 +877,12 @@ testKill newTransport numThreads = do
     throwIO (userError "Missing pings")
 
 --  print (actualPings, expectedPings)
-
+-}
 
 -- | Set up conditions with a high likelyhood of "crossing" (for transports
 -- that multiplex lightweight connections across heavyweight connections)
-testCrossing :: Transport -> Int -> IO ()
-testCrossing transport numRepeats = do
+testCrossing :: Transport -> Transport -> Int -> IO ()
+testCrossing transport1 transport2 numRepeats = do
   [aAddr, bAddr] <- replicateM 2 newEmptyMVar
   [aDone, bDone] <- replicateM 2 newEmptyMVar
   [aGo,   bGo]   <- replicateM 2 newEmptyMVar
@@ -894,7 +894,7 @@ testCrossing transport numRepeats = do
 
   -- A
   forkTry $ do
-    Right endpoint <- newEndPoint transport
+    Right endpoint <- newEndPoint transport1
     putMVar aAddr (address endpoint)
     theirAddress <- readMVar bAddr
 
@@ -914,7 +914,7 @@ testCrossing transport numRepeats = do
 
   -- B
   forkTry $ do
-    Right endpoint <- newEndPoint transport
+    Right endpoint <- newEndPoint transport2
     putMVar bAddr (address endpoint)
     theirAddress <- readMVar aAddr
 
@@ -940,6 +940,7 @@ testCrossing transport numRepeats = do
     takeMVar aDone
     takeMVar bDone
 
+{-
 -- Transport tests
 testTransport :: IO (Either String Transport) -> IO ()
 testTransport newTransport = do
