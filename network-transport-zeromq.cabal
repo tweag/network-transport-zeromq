@@ -20,7 +20,7 @@ library
   build-depends:       base >=4.6 && <4.7,
                        binary >= 0.6,
                        network-transport >= 0.3,
-                       zeromq4-haskell >= 0.1,
+                       zeromq4-haskell >= 0.2,
                        async >= 2.0,
                        stm >= 2.4,
                        stm-chans >= 0.3,
