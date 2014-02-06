@@ -108,9 +108,6 @@ instance Binary Reliability
 --   Valid   -- connection is created and validated
 --   Closed  -- connection is closed 
 --
--- XXX: current version of zeromq4-haskell do not export disconnect method, so
---      nodes are never really got disconneted (but it will be solved)
---
 -- To create a global connection between hosts we need to perform:
 --
 --    1. Local side:  calls ZMQ.connect 
@@ -205,7 +202,8 @@ data ValidRemoteHost = ValidRemoteHost
 data ZMQIncommingConnection = ZMQIncommingConnection !Word64 !ByteString !(TMChan Event)
 
 data ZMQConnection = ZMQConnection
-      { connectionHost  :: !RemoteHost
+      { connectionRemoteHost  :: !RemoteHost
+      , connectionLocalEndPoint :: !LocalEndPoint
       , connectionState :: !(MVar ZMQConnectionState)
       , connectionReady :: !(MVar ())
       }
@@ -357,7 +355,7 @@ createTransport params host port = do
 
       ZMQ.setIdentity (ZMQ.restrict socketAddr) router
       ZMQ.bind router (B8.unpack addr)
-      queue <- ZMQ.async $ processQueue transport router 
+      queue <- ZMQ.async $ processQueue transport
       liftIO $ A.link queue
       return (router, queue)
 
@@ -369,8 +367,8 @@ createTransport params host port = do
       ZMQ.close router
       -- XXX: verify that router is really closed
 
-    processQueue transport router = do
-      (TransportValid (ValidTransportState _ rh chan ps _)) <- liftIO $ readMVar (_transportState transport)
+    processQueue transport = do
+      (TransportValid (ValidTransportState _ _ chan _ _)) <- liftIO $ readMVar (_transportState transport)
       forever $ do
         action <- liftIO $ readChan chan
         case action of
@@ -450,14 +448,12 @@ apiConnect ourEp transport theirEp reliability _hints = do
           }
   where
     uri = apiGetUri theirEp reliability -- XXX: add reliabitily support
-    eid = apiGetEndPointId theirEp
-    oid = apiGetEndPointId $ _localEndPointAddress ourEp
 
 apiSend :: ZeroMQTransport -> ZMQConnection -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
-apiSend transport connection bs = do
+apiSend _transport connection bs = do
     withMVar (connectionState connection) $ \case -- XXX: check lock order
       ZMQConnectionValid (ValidZMQConnection cid) ->
-        withMVar (_remoteHostState $ connectionHost connection) $ \case
+        withMVar (_remoteHostState $ connectionRemoteHost connection) $ \case
           RemoteHostValid (ValidRemoteHost ch) -> do
               b <- atomically $ do
                       x <- isClosedTMChan ch
@@ -474,13 +470,12 @@ apiSend transport connection bs = do
       ZMQConnectionInit -> return $ Left $ TransportError SendFailed "Connection is in initialization phase." --XXXL check
       ZMQConnectionClosed -> return $ Left $ TransportError SendClosed "Connection is closed."
 
-
 -- Use locks: ConnectionState/RemoteHostState
 apiCloseConnection :: ZeroMQTransport -> ZMQConnection -> IO ()
-apiCloseConnection transport connection = do
+apiCloseConnection _transport connection = do
     modifyMVar_ (connectionState connection) $ \case
       ZMQConnectionValid (ValidZMQConnection cid) ->
-        withMVar (_remoteHostState $ connectionHost connection) $ \case
+        withMVar (_remoteHostState $ connectionRemoteHost connection) $ \case
           RemoteHostValid (ValidRemoteHost ch) -> do
               atomically $ writeTMChan ch [encode' (MessageCloseConnection cid)]
               return ZMQConnectionClosed
@@ -530,6 +525,7 @@ withTransportState t err f = withMVar (_transportState t) $ \case
 -- socket and RemoteHost enty in Transport hierarchy, the main reason for
 -- this is that Rank2Types will not allow socket to escape ZMQ context
 
+registerRemoteHost :: ValidTransportState -> TransportAddress -> IO RemoteHost
 registerRemoteHost v uri = do
   x <- newEmptyMVar
   writeChan (transportChannel v)
@@ -538,6 +534,7 @@ registerRemoteHost v uri = do
 
 remoteHostOpenConnection v host ourEp theirEp rel = do
   conn <- ZMQConnection <$> pure host
+                        <*> pure ourEp
                         <*> newMVar ZMQConnectionInit
                         <*> newEmptyMVar
   cid <- modifyMVar (_transportPending v) $
@@ -546,6 +543,7 @@ remoteHostOpenConnection v host ourEp theirEp rel = do
     [encode' $ MessageInitConnection cid (_localEndPointAddress ourEp) rel theirEp]
   return $ Right conn
 
+remoteHostSendMessage :: RemoteHost -> [ByteString] -> IO ()
 remoteHostSendMessage host msgs = do
     withMVar (_remoteHostState host) $ \case
       RemoteHostValid (ValidRemoteHost ch) ->
@@ -557,15 +555,18 @@ remoteHostSendMessage host msgs = do
           remoteHostReconnect host
           remoteHostSendMessage host msgs
 
+remoteHostReconnect :: RemoteHost -> IO ()
 remoteHostReconnect = error "remoteHostReconnect"
 
 -- | 
 -- Locks: */RemoteHostState
 -- RequireLocks: RemoteHosts
+createRemoteHost :: ZeroMQTransport -> ByteString -> ZMQ.ZMQ z RemoteHost
 createRemoteHost transport addr = do
     state <- liftIO (newMVar RemoteHostPending)
     ready <- liftIO newEmptyMVar
-    ZMQ.async $ bracket 
+    asnk  <- liftIO newEmptyMVar
+    x <- ZMQ.async $ bracket 
        (do push <- ZMQ.socket ZMQ.Push
            ZMQ.connect push (B8.unpack addr)
            ch <- liftIO newTMChanIO
@@ -577,12 +578,13 @@ createRemoteHost transport addr = do
            liftIO $ modifyMVar_ state $ \_ -> do 
               atomically $ closeTMChan ch
               return RemoteHostClosed
-           -- ZMQ.disconnect push addr
+           ZMQ.disconnect push (B8.unpack addr)
            ZMQ.close push
        ) $ \(push, ch) -> forever $ do -- XXX: close someday
        Just msgs  <- liftIO $ atomically $ readTMChan ch
        ZMQ.sendMulti push $ ident :| msgs
        liftIO yield
+    liftIO $ putMVar asnk x
     return $ RemoteHost addr state ready
   where
     ident = transportAddress transport
