@@ -256,7 +256,6 @@ createTransport params host port = do
             bracket (accure  transport)
                     (release transport) $ \(pull, _) -> repeatWhile (ZMQ.liftIO $ readIORef needContinue) $ do
               (identity:cmd:msgs) <- ZMQ.receiveMulti pull 
---              liftIO $ printf "[%s]: <%s:%s>\n" (show $ B.unpack socketAddr) (show $ B.unpack identity) (show $ B.unpack cmd)
               case decode' cmd of
                 MessageConnect -> do
                   liftIO $ printf "[%s]: [socket] message connect %s \n" 
@@ -265,7 +264,6 @@ createTransport params host port = do
                   liftIO $ modifyMVar_ (_remoteHosts vstate) $ \m -> do
                     case identity `M.lookup` m of
                       Nothing -> do
-                        printf "[%s]: [socket] create backconnection\n" (B8.unpack socketAddr)
                         x <- registerRemoteHost vstate identity
                         return $ M.insert identity x m
                       Just x -> return m
@@ -278,9 +276,9 @@ createTransport params host port = do
                   let epId = apiGetEndPointId ep
                   host <- liftIO $ modifyMVar (_remoteHosts vstate) $ \m -> do
                     case identity `M.lookup` m of
-                      Nothing -> error "!!!"
---                        x <- createRemoteHost transport identity
---                        return (M.insert identity x m, x)
+                      Nothing -> do
+                        x <- registerRemoteHost vstate identity
+                        return (M.insert identity x m, x)
                       Just x -> return (m, x)
                   ret <- liftIO $ withMVar (_localEndPoints vstate) $ \(Counter _ eps) ->
                     case epId `M.lookup` eps of
@@ -429,70 +427,31 @@ apiConnect :: LocalEndPoint
            -> ConnectHints
            -> IO (Either (TransportError ConnectErrorCode) Connection)
 apiConnect ourEp transport theirEp reliability _hints = do
-        let uri = apiGetUri theirEp reliability -- XXX: add reliabitily support
-        if uri == transportAddress transport
-        then mkLocalConnection
-        else do
-            host <- withTransportState transport
-				       (error "transport is closed") -- XXX: return Left
-				       $ \v -> do
-              modifyMVar (_remoteHosts v) $ \m -> do
-                case uri `M.lookup` m of
-                  Nothing -> do
-                    x <- registerRemoteHost v uri
-                    return (M.insert uri x m, x)
-                  Just x -> return (m, x)
-            _    <- readMVar (_remoteHostReady host)
-            etr <- withTransportState transport
-                                      (return $ Left $ TransportError ConnectFailed "Transport is closed")
-                            	      $ \v -> remoteHostOpenConnection v host ourEp theirEp reliability
-            case etr of
-              Left te -> return (Left te)
-              Right conn -> do
-                _    <- readMVar (connectionReady conn)
-                return . Right $ Connection
-                  { send = apiSend transport conn
-                  , close = apiCloseConnection transport conn
-                  }
+    host <- withTransportState transport
+               (error "transport is closed") -- XXX: return Left
+               $ \v -> do
+      modifyMVar (_remoteHosts v) $ \m -> do
+        case uri `M.lookup` m of
+          Nothing -> do
+            x <- registerRemoteHost v uri
+            return (M.insert uri x m, x)
+          Just x -> return (m, x)
+    _    <- readMVar (_remoteHostReady host)
+    etr <- withTransportState transport
+                              (return $ Left $ TransportError ConnectFailed "Transport is closed")
+                              $ \v -> remoteHostOpenConnection v host ourEp theirEp reliability
+    case etr of
+      Left te -> return (Left te)
+      Right conn -> do
+        _    <- readMVar (connectionReady conn)
+        return . Right $ Connection
+          { send = apiSend transport conn
+          , close = apiCloseConnection transport conn
+          }
   where
+    uri = apiGetUri theirEp reliability -- XXX: add reliabitily support
     eid = apiGetEndPointId theirEp
     oid = apiGetEndPointId $ _localEndPointAddress ourEp
-    mkLocalConnection = withTransportState transport
-                                           (return $ Left $ TransportError ConnectFailed "Transport is closed.")
-                                           $ \v -> do
-       withMVar (_localEndPoints v) $ \(Counter _ eps) -> do
-         case eid `M.lookup` eps of
-           Nothing -> return $ Left $ TransportError ConnectFailed "Endpoint not found."
-           Just  e -> do
-             withMVar (_localEndPointState ourEp) $ \case
-                LocalEndPointClosed -> return $ Left $ TransportError ConnectFailed "Our endpoint is closed."
-                LocalEndPointValid ourV ->
-                  let action = 
-                        if _localEndPointAddress ourEp == theirEp
-                        then (\f -> f ourV)
-                        else (\f -> withMVar (_localEndPointState e) $ \case
-                                       LocalEndPointClosed -> return $ Left $ TransportError ConnectNotFound "Their endpoint is closed."
-                                       LocalEndPointValid theirV -> f theirV)
-                  in action $ \(ValidLocalEndPointState ch) -> do
-                       idx <- modifyMVar (_transportConnections v) $
-		       	                nextElement' (const $ return False)
-                                             (\n' -> ZMQIncommingConnection n' "local" ch)
-                       atomically $ writeTMChan ch $ ConnectionOpened idx reliability (_localEndPointAddress ourEp)
-                       return . Right $ Connection
-                         { send = \bs -> do
-                             withMVar (_localEndPointState ourEp) $ \case
-                               LocalEndPointClosed -> return $ Left $ TransportError SendFailed "Our endpoint is closed."
-                               LocalEndPointValid _ -> withMVar (_transportConnections v) $ \(Counter n m) -> do
-                                 case idx `M.lookup` m of
-                                   Nothing -> return $ Left $ TransportError SendClosed "Connection is closed."
-                                   Just _ ->
-                                     atomically $ do
-                                       closed <- isClosedTMChan ch
-                                       if closed
-                                       then return $ Left $ TransportError SendFailed "Connection is closed." 
-                                       else writeTMChan ch (Received idx bs) >> return (Right ())
-                         , close = closeIncommingConnection v idx "local"
-                         }
 
 apiSend :: ZeroMQTransport -> ZMQConnection -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
 apiSend transport connection bs = do
@@ -515,6 +474,8 @@ apiSend transport connection bs = do
       ZMQConnectionInit -> return $ Left $ TransportError SendFailed "Connection is in initialization phase." --XXXL check
       ZMQConnectionClosed -> return $ Left $ TransportError SendClosed "Connection is closed."
 
+
+-- Use locks: ConnectionState/RemoteHostState
 apiCloseConnection :: ZeroMQTransport -> ZMQConnection -> IO ()
 apiCloseConnection transport connection = do
     modifyMVar_ (connectionState connection) $ \case
@@ -526,6 +487,7 @@ apiCloseConnection transport connection = do
           _ -> return ZMQConnectionClosed
       x -> return x
 
+-- Use locks: TransportConnection
 closeIncommingConnection :: ValidTransportState
                          -> ConnectionId -> ByteString -> IO ()
 closeIncommingConnection v idx ident =
@@ -535,11 +497,12 @@ closeIncommingConnection v idx ident =
         Just (ZMQIncommingConnection _ ep ch)
           | ep == ident -> do
               atomically $ writeTMChan ch $ ConnectionClosed idx
+              -- XXX: notify socket maybe we want to close it
               return (Counter n (M.delete idx m))
           | otherwise -> return i
 
 apiGetUri :: EndPointAddress -> Reliability -> ByteString
-apiGetUri addr _rel = B8.init $ fst $ B8.breakEnd (=='/') $ endPointAddressToByteString addr -- XXX: properly support reliability
+apiGetUri addr _rel = B8.init $ fst $ B8.breakEnd (=='/') $ endPointAddressToByteString addr
 
 apiGetEndPointId :: EndPointAddress -> Word32
 apiGetEndPointId epa = read . B8.unpack . snd $ B8.breakEnd (=='/') $ endPointAddressToByteString epa
