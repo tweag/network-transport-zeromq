@@ -183,7 +183,10 @@ data LocalEndPointState
 
 data ValidLocalEndPointState = ValidLocalEndPointState 
       { _localEndPointChanl :: !(TMChan Event)
-      , _localEndPointConnections :: !(Map ConnectionId ZMQConnection)
+      , _localEndPointOutgoingConnections :: !(Map ConnectionId ZMQConnection)
+      , _localEndPointIncommingConnections :: !(Map ConnectionId ZMQIncommingConnection)
+      -- ^ we need it to close connections when host is dead, really we
+      -- need to keep list of remote end points only
       }
 
 data RemoteHost = RemoteHost 
@@ -199,6 +202,7 @@ data RemoteHostState
 
 data ValidRemoteHost = ValidRemoteHost
         { remoteHostChannel :: !(TMChan [ByteString])
+        , remoteHostEndPoints :: !(Map ByteString RemoteEndPoint)
         }
 
 -- Note Incomming connection is always valid
@@ -217,6 +221,19 @@ data ZMQConnectionState
       | ZMQConnectionClosed
 
 data ValidZMQConnection = ValidZMQConnection !Word64
+
+data RemoteEndPoint = RemoteEndPoint
+      { remoteEndPointAddress :: EndPointAddress
+      , remoteEndPointState   :: !(MVar RemoteEndPointState)
+      }
+
+data RemoteEndPointState
+      = RemoteEndPointValid ValidRemoteEndPoint
+      | RemoteEndPointClosed
+
+data ValidRemoteEndPoint = ValidRemoteEndPoint
+      { _remoteEndPointIncommingConnections :: !(Map ConnectionId ZMQIncommingConnection)
+      }
 
 -- | Messages
 data ZMQMessage 
@@ -288,12 +305,15 @@ createTransport params host port = do
                           return Nothing -- XXX: reply with error message
                       Just x  -> modifyMVar (_localEndPointState x) $ \s -> do
                         case s of
-                          LocalEndPointValid (ValidLocalEndPointState chan _)  -> do
-                            idx <- modifyMVar (_transportConnections vstate) $ 
+                          LocalEndPointValid i@(ValidLocalEndPointState chan _ _)  -> do
+                            (idx,conn) <- modifyMVar (_transportConnections vstate) $ 
                                       nextElement' (const $ return True)
                                                    (\n' -> ZMQIncommingConnection n' identity chan)
                             atomically $ writeTMChan chan $ ConnectionOpened idx rel theirEp
-                            return (s, Just idx)
+                            return (LocalEndPointValid i{_localEndPointIncommingConnections=
+                                      M.insert idx conn (_localEndPointIncommingConnections i)
+                                     }
+                                   , Just idx)
                           LocalEndPointClosed  -> return (s, Nothing) -- XXX: reply with error message
                   case ret of
                     Nothing -> return () -- XXX: reply with error
@@ -398,7 +418,7 @@ apiNewEndPoint transport = do
               in do
                  ep <- LocalEndPoint 
                          <$> pure addr
-                         <*> newMVar (LocalEndPointValid (ValidLocalEndPointState chan M.empty))
+                         <*> newMVar (LocalEndPointValid (ValidLocalEndPointState chan M.empty M.empty))
                  let eps' = M.insert nxt' ep eps
                  return (Counter nxt' eps', ep)
     return . Right $ EndPoint
@@ -446,9 +466,8 @@ apiConnect ourEp transport theirEp reliability _hints = do
             res <- remoteHostOpenConnection v host ourEp theirEp reliability
             case res of
               Right (cid, c) ->
-                return (LocalEndPointValid i{_localEndPointConnections=M.insert cid c (_localEndPointConnections i)}, Right c)
+                return (LocalEndPointValid i{_localEndPointOutgoingConnections=M.insert cid c (_localEndPointOutgoingConnections i)}, Right c)
               Left e -> return  (w, Left e)
-
     case etr of
       Left te -> return (Left te)
       Right conn -> do
@@ -465,7 +484,7 @@ apiSend _transport connection bs = do
     withMVar (connectionState connection) $ \case -- XXX: check lock order
       ZMQConnectionValid (ValidZMQConnection cid) ->
         withMVar (_remoteHostState $ connectionRemoteHost connection) $ \case
-          RemoteHostValid (ValidRemoteHost ch) -> do
+          RemoteHostValid (ValidRemoteHost ch _) -> do
               b <- atomically $ do
                       x <- isClosedTMChan ch
                       writeTMChan ch (encode' (MessageData cid):bs)
@@ -487,7 +506,7 @@ apiCloseConnection _transport connection = do
     modifyMVar_ (connectionState connection) $ \case
       ZMQConnectionValid (ValidZMQConnection cid) ->
         withMVar (_remoteHostState $ connectionRemoteHost connection) $ \case
-          RemoteHostValid (ValidRemoteHost ch) -> do
+          RemoteHostValid (ValidRemoteHost ch _) -> do
               atomically $ writeTMChan ch [encode' (MessageCloseConnection cid)]
               return ZMQConnectionClosed
           _ -> return ZMQConnectionClosed
@@ -556,7 +575,7 @@ remoteHostOpenConnection v host ourEp theirEp rel = do
                         <*> pure ourEp
                         <*> newMVar ZMQConnectionInit
                         <*> newEmptyMVar
-  cid <- modifyMVar (_transportPending v) $
+  (cid, _) <- modifyMVar (_transportPending v) $
     nextElement (const $ return True) conn
   remoteHostSendMessage host 
     [encode' $ MessageInitConnection cid (_localEndPointAddress ourEp) rel theirEp]
@@ -565,7 +584,7 @@ remoteHostOpenConnection v host ourEp theirEp rel = do
 remoteHostSendMessage :: RemoteHost -> [ByteString] -> IO ()
 remoteHostSendMessage host msgs = do
     withMVar (_remoteHostState host) $ \case
-      RemoteHostValid (ValidRemoteHost ch) ->
+      RemoteHostValid (ValidRemoteHost ch _) ->
           atomically $ writeTMChan ch msgs
       RemoteHostPending -> do
           readMVar (_remoteHostReady host)
@@ -590,7 +609,7 @@ createRemoteHost transport addr = do
            ZMQ.connect push (B8.unpack addr)
            ch <- liftIO newTMChanIO
            ZMQ.sendMulti push $ ident :| [encode' MessageConnect]
-           _ <- liftIO $ swapMVar state (RemoteHostValid (ValidRemoteHost ch))
+           _ <- liftIO $ swapMVar state (RemoteHostValid (ValidRemoteHost ch M.empty))
            liftIO $ putMVar ready ()
            return (push, ch))
        (\(push, ch) -> do
