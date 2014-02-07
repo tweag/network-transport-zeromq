@@ -169,7 +169,7 @@ type LocalEndPoints = Counter Word32 LocalEndPoint
 
 type IncommingConnections = Counter ConnectionId ZMQIncommingConnection
 
-type PendingConnections = Counter Word32 ZMQConnection
+type PendingConnections = Counter ConnectionId ZMQConnection
 
 -- | End points allocated localy. 
 data LocalEndPoint = LocalEndPoint
@@ -181,7 +181,10 @@ data LocalEndPointState
       = LocalEndPointValid !ValidLocalEndPointState
       | LocalEndPointClosed
 
-data ValidLocalEndPointState = ValidLocalEndPointState !(TMChan Event)
+data ValidLocalEndPointState = ValidLocalEndPointState 
+      { _localEndPointChanl :: !(TMChan Event)
+      , _localEndPointConnections :: !(Map ConnectionId ZMQConnection)
+      }
 
 data RemoteHost = RemoteHost 
       { _remoteHostUrl   :: !ByteString
@@ -219,8 +222,8 @@ data ValidZMQConnection = ValidZMQConnection !Word64
 data ZMQMessage 
       = MessageConnect -- ^ Connection greeting
       | MessageConnectOk !ByteString
-      | MessageInitConnection !Word32 !EndPointAddress !Reliability !EndPointAddress
-      | MessageInitConnectionOk !Word32 !Word64
+      | MessageInitConnection !ConnectionId !EndPointAddress !Reliability !EndPointAddress
+      | MessageInitConnectionOk !ConnectionId !ConnectionId
       | MessageCloseConnection !ConnectionId
       | MessageData !ConnectionId
       deriving (Generic)
@@ -285,7 +288,7 @@ createTransport params host port = do
                           return Nothing -- XXX: reply with error message
                       Just x  -> modifyMVar (_localEndPointState x) $ \s -> do
                         case s of
-                          LocalEndPointValid (ValidLocalEndPointState chan)  -> do
+                          LocalEndPointValid (ValidLocalEndPointState chan _)  -> do
                             idx <- modifyMVar (_transportConnections vstate) $ 
                                       nextElement' (const $ return True)
                                                    (\n' -> ZMQIncommingConnection n' identity chan)
@@ -304,20 +307,19 @@ createTransport params host port = do
                         (B8.unpack socketAddr)
                         ourId
                         theirId
-                  modifyMVar_ (_transportPending vstate) $ \pconns ->
+                  liftIO $ modifyMVar_ (_transportPending vstate) $ \pconns ->
                     case ourId `M.lookup` (counterValue pconns) of
                         Nothing -> do
-                            liftIO $ printf "[%s]: [mainloop] pending connection not found\n" (B8.unpack socketAddr)
+                            printf "[%s]: [mainloop] pending connection not found\n" (B8.unpack socketAddr)
                             return pconns 
                         Just cn -> do
-                            rd <- modifyMVar (connectionState cn) $ \st ->
-                              case st of
-                                ZMQConnectionInit -> do
-                                    liftIO $ printf "[%s]: [mainloop] connection initialized\n" (B8.unpack socketAddr)
-                                    return (ZMQConnectionValid (ValidZMQConnection theirId), True)
-                                _ -> do
-                                    liftIO $ printf "[%s]: [mainloop] incorrect state\n" (B8.unpack socketAddr)
-                                    return (st, False)
+                            rd <- modifyMVar (connectionState cn) $ \case
+                                    ZMQConnectionInit -> do
+                                      liftIO $ printf "[%s]: [mainloop] connection initialized\n" (B8.unpack socketAddr)
+                                      return (ZMQConnectionValid (ValidZMQConnection theirId), True)
+                                    st -> do
+                                      liftIO $ printf "[%s]: [mainloop] incorrect state\n" (B8.unpack socketAddr)
+                                      return (st, False)
                             when rd $ putMVar (connectionReady cn) ()
                             return (pconns{counterValue=ourId `M.delete` (counterValue pconns)})
                 MessageData idx -> liftIO $ do
@@ -396,7 +398,7 @@ apiNewEndPoint transport = do
               in do
                  ep <- LocalEndPoint 
                          <$> pure addr
-                         <*> newMVar (LocalEndPointValid (ValidLocalEndPointState chan))
+                         <*> newMVar (LocalEndPointValid (ValidLocalEndPointState chan M.empty))
                  let eps' = M.insert nxt' ep eps
                  return (Counter nxt' eps', ep)
     return . Right $ EndPoint
@@ -437,7 +439,16 @@ apiConnect ourEp transport theirEp reliability _hints = do
     _    <- readMVar (_remoteHostReady host)
     etr <- withTransportState transport
                               (return $ Left $ TransportError ConnectFailed "Transport is closed")
-                              $ \v -> remoteHostOpenConnection v host ourEp theirEp reliability
+                              $ \v -> 
+        modifyMVar (_localEndPointState ourEp) $ \case
+          LocalEndPointClosed -> return (LocalEndPointClosed, Left $ TransportError ConnectFailed "LocalEndPoint is closed")
+          w@(LocalEndPointValid i) -> do
+            res <- remoteHostOpenConnection v host ourEp theirEp reliability
+            case res of
+              Right (cid, c) ->
+                return (LocalEndPointValid i{_localEndPointConnections=M.insert cid c (_localEndPointConnections i)}, Right c)
+              Left e -> return  (w, Left e)
+
     case etr of
       Left te -> return (Left te)
       Right conn -> do
@@ -532,6 +543,14 @@ registerRemoteHost v uri = do
             (ActionConnectHost uri x)
   takeMVar x
 
+-- Use lock pending
+-- RequireLock: TransportStat
+remoteHostOpenConnection :: ValidTransportState 
+                         -> RemoteHost
+                         -> LocalEndPoint
+                         -> EndPointAddress
+                         -> Reliability
+                         -> IO (Either (TransportError ConnectErrorCode) (ConnectionId, ZMQConnection))
 remoteHostOpenConnection v host ourEp theirEp rel = do
   conn <- ZMQConnection <$> pure host
                         <*> pure ourEp
@@ -541,7 +560,7 @@ remoteHostOpenConnection v host ourEp theirEp rel = do
     nextElement (const $ return True) conn
   remoteHostSendMessage host 
     [encode' $ MessageInitConnection cid (_localEndPointAddress ourEp) rel theirEp]
-  return $ Right conn
+  return $ Right (cid, conn)
 
 remoteHostSendMessage :: RemoteHost -> [ByteString] -> IO ()
 remoteHostSendMessage host msgs = do
@@ -584,8 +603,9 @@ createRemoteHost transport addr = do
        Just msgs  <- liftIO $ atomically $ readTMChan ch
        ZMQ.sendMulti push $ ident :| msgs
        liftIO yield
-    liftIO $ putMVar asnk x
+    liftIO $ do
+      A.link x
+      putMVar asnk x
     return $ RemoteHost addr state ready
   where
     ident = transportAddress transport
-
