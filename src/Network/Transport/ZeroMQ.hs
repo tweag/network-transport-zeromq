@@ -281,16 +281,11 @@ createTransport params host port = do
                     (release transport) $ \(pull, _) -> repeatWhile (ZMQ.liftIO $ readIORef needContinue) $ do
               (identity:cmd:msgs) <- ZMQ.receiveMulti pull 
               case decode' cmd of
-                MessageConnect -> do
-                  liftIO $ printf "[%s]: [socket] message connect %s \n" 
-                                  (B8.unpack socketAddr)
-                                  (B8.unpack identity)
-                  liftIO $ modifyMVar_ (_remoteHosts vstate) $ \m -> do
-                    case identity `M.lookup` m of
-                      Nothing -> do
-                        x <- registerRemoteHost vstate identity
-                        return $ M.insert identity x m
-                      Just x -> return m
+                MessageConnect -> liftIO $ do
+                  printf "[%s]: [socket] message connect %s \n" 
+                         (B8.unpack socketAddr)
+                         (B8.unpack identity)
+                  void $ remoteHostById vstate identity
                 MessageInitConnection theirId theirEp rel ep -> liftIO $ do
                   printf "[%s]: message init connection: {theirId: %i, theirEp: %s, ep: %s) \n" 
                      (B8.unpack socketAddr)
@@ -316,7 +311,6 @@ createTransport params host port = do
                                      }
                                    , Just (idx, conn))
                           LocalEndPointClosed  -> return (s, Nothing) -- XXX: reply with error message
-
                   case ret of
                     Nothing -> return () -- XXX: reply with error
                     Just (ourId, conn) -> do
@@ -570,7 +564,6 @@ registerRemoteHost v uri = do
             (ActionConnectHost uri x)
   takeMVar x
 
-
 remoteHostById :: ValidTransportState -> ByteString -> IO RemoteHost
 remoteHostById vstate uri = 
     modifyMVar (_remoteHosts vstate) $ \m -> do
@@ -580,6 +573,7 @@ remoteHostById vstate uri =
           return (M.insert uri x m, x)
         Just x -> return (m, x)
 
+remoteHostAddEndPointConnection :: RemoteHost -> EndPointAddress -> ZMQIncommingConnection -> IO ()
 remoteHostAddEndPointConnection host ep conn = do
   modifyMVar_ (_remoteHostState host) $ \case
     RemoteHostValid (ValidRemoteHost x m) -> do
