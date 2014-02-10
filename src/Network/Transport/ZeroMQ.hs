@@ -172,68 +172,6 @@ type IncommingConnections = Counter ConnectionId ZMQConnection
 
 type PendingConnections = Counter ConnectionId ZMQConnection
 
--- | End points allocated localy. 
-data LocalEndPoint = LocalEndPoint
-      { _localEndPointAddress :: !EndPointAddress
-      , _localEndPointState :: MVar LocalEndPointState 
-      }
-
-data LocalEndPointState
-      = LocalEndPointValid !ValidLocalEndPointState
-      | LocalEndPointClosed
-
-data ValidLocalEndPointState = ValidLocalEndPointState 
-      { _localEndPointChanl :: !(TMChan Event)
-      , _localEndPointOutgoingConnections :: !(Map ConnectionId ZMQConnection)
-      , _localEndPointIncommingConnections :: !(Map ConnectionId ZMQConnection)
-      -- ^ we need it to close connections when host is dead, really we
-      -- need to keep list of remote end points only
-      }
-
-data RemoteHost = RemoteHost 
-      { _remoteHostUrl   :: !ByteString
-      , _remoteHostState :: !(MVar RemoteHostState)
-      , _remoteHostReady :: !(MVar ())
-      }
-
-data RemoteHostState
-        = RemoteHostValid ValidRemoteHost
-        | RemoteHostPending
-        | RemoteHostClosed
-
-data ValidRemoteHost = ValidRemoteHost
-        { remoteHostChannel :: !(TMChan [ByteString])
-        , remoteHostEndPoints :: !(Map EndPointAddress RemoteEndPoint)
-        }
-
-data ZMQConnection = ZMQConnection
-      { connectionRemoteEndPoint :: !RemoteEndPoint
-      , connectionLocalEndPoint  :: !LocalEndPoint
-      , connectionState :: !(MVar ZMQConnectionState)
-      , connectionReady :: !(MVar ())
-      }
-
-data ZMQConnectionState
-      = ZMQConnectionInit
-      | ZMQConnectionValid !ValidZMQConnection
-      | ZMQConnectionClosed
-
-data ValidZMQConnection = ValidZMQConnection !Word64
-
-data RemoteEndPoint = RemoteEndPoint
-      { remoteEndPointAddress :: !EndPointAddress
-      , remoteEndPointHost    :: !RemoteHost
-      , _remoteEndPointState  :: !(MVar RemoteEndPointState)
-      }
-
-data RemoteEndPointState
-      = RemoteEndPointValid ValidRemoteEndPoint
-      | RemoteEndPointClosed
-
-data ValidRemoteEndPoint = ValidRemoteEndPoint
-      { _remoteEndPointIncommingConnections :: !(Map ConnectionId ZMQConnection)
-      }
-
 -- | Messages
 data ZMQMessage 
       = MessageConnect -- ^ Connection greeting
@@ -290,9 +228,7 @@ createTransport params host port = do
                   rep  <- createOrGetRemoteEP host theirEp
                   ret <- withMVar (_localEndPoints vstate) $ \(Counter _ eps) ->
                     case epId `M.lookup` eps of
-                      Nothing -> do
-                          printf "[%s]: no such endpoint\n" (B8.unpack socketAddr)
-                          return Nothing -- XXX: reply with error message
+                      Nothing -> return Nothing
                       Just x  -> modifyMVar (_localEndPointState x) $ \s -> do
                         case s of
                           LocalEndPointValid i@(ValidLocalEndPointState chan _ _)  -> do
@@ -308,7 +244,7 @@ createTransport params host port = do
                                       M.insert idx conn (_localEndPointIncommingConnections i)
                                      }
                                    , Just (idx, conn))
-                          LocalEndPointClosed  -> return (s, Nothing) -- XXX: reply with error message
+                          LocalEndPointClosed  -> return (s, Nothing)
                   case ret of
                     Nothing -> return () -- XXX: reply with error
                     Just (ourId, conn) -> do
@@ -433,6 +369,7 @@ apiNewEndPoint transport = do
       , closeEndPoint         = do
           modifyMVar_ (_localEndPointState ep) (return . const LocalEndPointClosed)
           atomically $ do
+              -- Notify all outgoing connections that transport is closed.
               writeTMChan chan EndPointClosed
               closeTMChan chan
       , newMulticastGroup     = return . Left $
@@ -592,11 +529,12 @@ remoteHostAddEndPointConnection rep conn = do
   withMVar (connectionState conn) $ \case
     ZMQConnectionValid (ValidZMQConnection idx) -> do
       modifyMVar_ (_remoteEndPointState rep) $ \case
-        RemoteEndPointClosed -> undefined -- XXX
+        RemoteEndPointClosed -> return RemoteEndPointClosed -- XXX: possibly we need to set connection state to closed
         RemoteEndPointValid (ValidRemoteEndPoint v) ->
           return (RemoteEndPointValid (ValidRemoteEndPoint $ M.insert idx conn v))
     _ -> return () -- XXX notify
 
+remoteHostCloseConnection :: RemoteHost -> ZMQConnection -> ConnectionId -> IO ()
 remoteHostCloseConnection host (ZMQConnection rep _ _ _) cid = do
     withMVar (_remoteHostState host ) $ \case
       RemoteHostValid (ValidRemoteHost _ m) ->
