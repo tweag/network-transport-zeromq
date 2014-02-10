@@ -49,6 +49,7 @@ import qualified Data.Map.Strict as M
 import           Data.Typeable
 import           Data.Void
 import           GHC.Generics 
+import           System.Mem.Weak
 
 import Network.Transport
 import Network.Transport.ZeroMQ.Types
@@ -168,9 +169,9 @@ data ValidTransportState = ValidTransportState
 
 type LocalEndPoints = Counter Word32 LocalEndPoint
 
-type IncommingConnections = Counter ConnectionId ZMQConnection
+type IncommingConnections = Counter ConnectionId (Weak ZMQConnection)
 
-type PendingConnections = Counter ConnectionId ZMQConnection
+type PendingConnections = Counter ConnectionId (Weak ZMQConnection)
 
 -- | Messages
 data ZMQMessage 
@@ -233,12 +234,15 @@ createTransport params host port = do
                         case s of
                           LocalEndPointValid i@(ValidLocalEndPointState chan _ _)  -> do
                             (idx,conn) <- modifyMVar (_transportConnections vstate) $ 
-                                nextElementM (const $ return True)
-                                             (\n' -> 
-                                  ZMQConnection <$> pure rep
+                                nextElementM' (const $ return True)
+                                              (\n' -> do
+                                  cn <- ZMQConnection <$> pure rep
                                                 <*> pure x
                                                 <*> newMVar (ZMQConnectionValid (ValidZMQConnection n'))
-                                                <*> newMVar ())
+                                                <*> newMVar ()
+                                  wk <- mkWeakPtr cn Nothing
+                                  return (wk,cn)
+                                                )
                             atomically $ writeTMChan chan $ ConnectionOpened idx rel theirEp
                             return (LocalEndPointValid i{_localEndPointIncommingConnections=
                                       M.insert idx conn (_localEndPointIncommingConnections i)
@@ -268,7 +272,8 @@ createTransport params host port = do
                         Nothing -> do
                             printf "[%s]: [mainloop] pending connection not found\n" (B8.unpack socketAddr)
                             return pconns 
-                        Just cn -> do
+                        Just c -> deRefWeak c >>= \case
+                          Just cn -> do
                             rd <- modifyMVar (connectionState cn) $ \case
                                     ZMQConnectionInit -> do
                                       liftIO $ printf "[%s]: [mainloop] connection initialized\n" (B8.unpack socketAddr)
@@ -278,15 +283,19 @@ createTransport params host port = do
                                       return (st, False)
                             when rd $ putMVar (connectionReady cn) ()
                             return (pconns{counterValue=ourId `M.delete` (counterValue pconns)})
+                          Nothing -> do
+                            return (pconns{counterValue=ourId `M.delete` (counterValue pconns)})
                 MessageData idx -> liftIO $ do
                   printf "[%s]: [mainloop] message data\n" (B8.unpack socketAddr)
                   withMVar (_transportConnections vstate) $ \(Counter _ x) ->
                     case idx `M.lookup` x of
                       Nothing -> return ()
-                      Just (ZMQConnection _ lep _ _) ->
-                        withMVar (_localEndPointState lep) $ \case
-                          LocalEndPointValid (ValidLocalEndPointState ch _ _)  ->
-                            atomically $ writeTMChan ch (Received idx msgs)
+                      Just cn -> deRefWeak cn >>= \case
+                          Just (ZMQConnection _ lep _ _) ->
+                            withMVar (_localEndPointState lep) $ \case
+                              LocalEndPointValid (ValidLocalEndPointState ch _ _)  ->
+                                atomically $ writeTMChan ch (Received idx msgs)
+                          Nothing -> return () -- XXX: report error
               liftIO $ yield
         putMVar closed ()
 
@@ -458,13 +467,15 @@ closeIncommingConnection v idx ident =
     modifyMVar (_transportConnections v) $ \i@(Counter n m) -> do
       case idx `M.lookup` m of
         Nothing -> return (i, Nothing)
-        Just conn@(ZMQConnection _ lep _ _) ->
-          withMVar (_localEndPointState lep) $ \case
-            LocalEndPointValid (ValidLocalEndPointState ch _ _) -> do
-              atomically $ writeTMChan ch $ ConnectionClosed idx
-              -- XXX: notify socket maybe we want to close it
-              return (Counter n (M.delete idx m), Just conn)
-            _ -> return (i, Nothing)
+        Just cn -> deRefWeak cn >>= \case
+            Just conn@(ZMQConnection _ lep _ _) ->
+              withMVar (_localEndPointState lep) $ \case
+                LocalEndPointValid (ValidLocalEndPointState ch _ _) -> do
+                  atomically $ writeTMChan ch $ ConnectionClosed idx
+                  -- XXX: notify socket maybe we want to close it
+                  return (Counter n (M.delete idx m), Just conn)
+                _ -> return (i, Nothing)
+            Nothing -> return (i, Nothing) -- XXX: notify
 
 apiGetUri :: EndPointAddress -> Reliability -> ByteString
 apiGetUri addr _rel = B8.init $ fst $ B8.breakEnd (=='/') $ endPointAddressToByteString addr
@@ -567,7 +578,7 @@ remoteHostOpenConnection v host ourEp theirEp rel = do
                               <*> newMVar ZMQConnectionInit
                               <*> newEmptyMVar
         (cid, _) <- modifyMVar (_transportPending v) $
-          nextElement (const $ return True) conn
+          nextElementM (const $ return True) (const $ mkWeakPtr conn Nothing)
         remoteHostSendMessage w
           [encode' $ MessageInitConnection cid (_localEndPointAddress ourEp) rel theirAddr]
         return $ (RemoteHostValid (ValidRemoteHost c m'), Right (cid, conn))
