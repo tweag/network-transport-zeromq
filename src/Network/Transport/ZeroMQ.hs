@@ -234,7 +234,7 @@ createTransport params host port = do
                         case s of
                           LocalEndPointValid i@(ValidLocalEndPointState chan _ _)  -> do
                             (idx,conn) <- modifyMVar (_transportConnections vstate) $ 
-                                nextElementM' (const $ return True)
+                                nextElementM' (fmap isNothing . deRefWeak)
                                               (\n' -> do
                                   cn <- ZMQConnection <$> pure rep
                                                 <*> pure x
@@ -578,7 +578,7 @@ remoteHostOpenConnection v host ourEp theirEp rel = do
                               <*> newMVar ZMQConnectionInit
                               <*> newEmptyMVar
         (cid, _) <- modifyMVar (_transportPending v) $
-          nextElementM (const $ return True) (const $ mkWeakPtr conn Nothing)
+          nextElementM (fmap isNothing deRefWeak) (const $ mkWeakPtr conn Nothing)
         remoteHostSendMessage w
           [encode' $ MessageInitConnection cid (_localEndPointAddress ourEp) rel theirAddr]
         return $ (RemoteHostValid (ValidRemoteHost c m'), Right (cid, conn))
