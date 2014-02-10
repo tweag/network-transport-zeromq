@@ -240,7 +240,7 @@ createTransport params host port = do
                                                 <*> pure x
                                                 <*> newMVar (ZMQConnectionValid (ValidZMQConnection n'))
                                                 <*> newMVar ()
-                                  wk <- mkWeakPtr cn Nothing
+                                  wk <- mkWeak x cn Nothing
                                   return (wk,cn)
                                                 )
                             atomically $ writeTMChan chan $ ConnectionOpened idx rel theirEp
@@ -257,18 +257,25 @@ createTransport params host port = do
                 MessageCloseConnection idx -> liftIO $ do
                   printf "[%s]: message close connection\n" (B8.unpack socketAddr)
                   mconn <- closeIncommingConnection vstate idx identity
+                  printf "1\n"
                   case mconn of
-                    Nothing -> return ()
+                    Nothing -> do
+                      printf "2\n"
+                      return ()
                     Just conn -> do
+                      printf "3\n"
                       host <- createOrGetHostById vstate identity
+                      printf "4\n"
                       remoteHostCloseConnection host conn idx
+                      printf "5\n"
+                      return ()
                 MessageInitConnectionOk ourId theirId -> liftIO $ do
                   printf "[%s]: [mainloop] message init connection ok: {ourId: %i, theirId: %i}\n"
                         (B8.unpack socketAddr)
                         ourId
                         theirId
                   liftIO $ modifyMVar_ (_transportPending vstate) $ \pconns ->
-                    case ourId `M.lookup` (counterValue pconns) of
+                    case ourId `M.lookup` counterValue pconns of
                         Nothing -> do
                             printf "[%s]: [mainloop] pending connection not found\n" (B8.unpack socketAddr)
                             return pconns 
@@ -284,9 +291,10 @@ createTransport params host port = do
                             when rd $ putMVar (connectionReady cn) ()
                             return (pconns{counterValue=ourId `M.delete` (counterValue pconns)})
                           Nothing -> do
+                            liftIO $ printf "[%s]: [mainloop] connection freed\n" (B8.unpack socketAddr)
                             return (pconns{counterValue=ourId `M.delete` (counterValue pconns)})
                 MessageData idx -> liftIO $ do
-                  printf "[%s]: [mainloop] message data\n" (B8.unpack socketAddr)
+                  printf "[%s]: [mainloop] message data (%i) \n" (B8.unpack socketAddr) idx
                   withMVar (_transportConnections vstate) $ \(Counter _ x) ->
                     case idx `M.lookup` x of
                       Nothing -> return ()
@@ -377,8 +385,8 @@ apiNewEndPoint transport = do
       , connect = apiConnect ep transport
       , closeEndPoint         = do
           modifyMVar_ (_localEndPointState ep) (return . const LocalEndPointClosed)
+          printf "close end point\n"
           atomically $ do
-              -- Notify all outgoing connections that transport is closed.
               writeTMChan chan EndPointClosed
               closeTMChan chan
       , newMulticastGroup     = return . Left $
@@ -419,43 +427,45 @@ apiConnect ourEp transport theirAddr reliability _hints = do
     case etr of
       Left te -> return (Left te)
       Right conn -> do
-        _    <- readMVar (connectionReady conn)
         return . Right $ Connection
           { send = apiSend transport conn
-          , close = apiCloseConnection transport conn
+          , close = do
+              print "connetion close\n"
+              apiCloseConnection transport conn
           }
   where
     uri = apiGetUri theirAddr reliability -- XXX: add reliabitily support
 
 apiSend :: ZeroMQTransport -> ZMQConnection -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
 apiSend _transport connection bs = do
+    printf "apiSend\n"
     withMVar (connectionState connection) $ \case -- XXX: check lock order
-      ZMQConnectionValid (ValidZMQConnection cid) ->
-        withMVar (_remoteHostState . remoteEndPointHost . connectionRemoteEndPoint $ connection) $ \case
+      ZMQConnectionValid (ValidZMQConnection cid) -> do
+        printf "locking remotehost\n"
+        z <- withMVar (_remoteHostState . remoteEndPointHost . connectionRemoteEndPoint $ connection) $ \case
           RemoteHostValid (ValidRemoteHost ch _) -> do
-              b <- atomically $ do
-                      x <- isClosedTMChan ch
-                      writeTMChan ch (encode' (MessageData cid):bs)
-                      return x
-              if b
-              then return $ Right ()
-              else return $ Left $ TransportError SendClosed "Connection is closed."
+              writeChan ch (encode' (MessageData cid):bs)
+              return $ Right ()
           RemoteHostPending -> do
+              printf "pending\n"
               -- XXX: make it asynchronous
               return $ Left $ TransportError SendFailed "Connection is not enstablished."
-          RemoteHostClosed  ->
+          RemoteHostClosed  -> do
+              printf "closed\n"
               return $ Left $ TransportError SendClosed "Remote host is closed."
+        printf "unlocked\n"
+        return z
       ZMQConnectionInit -> return $ Left $ TransportError SendFailed "Connection is in initialization phase." --XXXL check
-      ZMQConnectionClosed -> return $ Left $ TransportError SendClosed "Connection is closed."
+      ZMQConnectionClosed -> return $ Left $ TransportError SendClosed "Connection is closed!"
 
 -- Use locks: ConnectionState/RemoteHostState
 apiCloseConnection :: ZeroMQTransport -> ZMQConnection -> IO ()
 apiCloseConnection _transport connection = do
     modifyMVar_ (connectionState connection) $ \case
-      ZMQConnectionValid (ValidZMQConnection cid) ->
+      ZMQConnectionValid (ValidZMQConnection cid) -> do
         withMVar (_remoteHostState . remoteEndPointHost .  connectionRemoteEndPoint $ connection) $ \case
           RemoteHostValid (ValidRemoteHost ch _) -> do
-              atomically $ writeTMChan ch [encode' (MessageCloseConnection cid)]
+              writeChan ch [encode' (MessageCloseConnection cid)]
               return ZMQConnectionClosed
           _ -> return ZMQConnectionClosed
       x -> return x
@@ -475,7 +485,8 @@ closeIncommingConnection v idx ident =
                   -- XXX: notify socket maybe we want to close it
                   return (Counter n (M.delete idx m), Just conn)
                 _ -> return (i, Nothing)
-            Nothing -> return (i, Nothing) -- XXX: notify
+            Nothing -> do
+              return (i, Nothing) -- XXX: notify
 
 apiGetUri :: EndPointAddress -> Reliability -> ByteString
 apiGetUri addr _rel = B8.init $ fst $ B8.breakEnd (=='/') $ endPointAddressToByteString addr
@@ -534,6 +545,7 @@ createOrGetRemoteEP host ep =
                                 <*> newMVar (RemoteEndPointValid $! ValidRemoteEndPoint M.empty)
             return (x, M.insert ep x m)
         return (RemoteHostValid (ValidRemoteHost x m'), rep)
+    _ -> error "RemoteHost is not valid"
 
 remoteHostAddEndPointConnection :: RemoteEndPoint -> ZMQConnection -> IO ()
 remoteHostAddEndPointConnection rep conn = do
@@ -578,7 +590,7 @@ remoteHostOpenConnection v host ourEp theirEp rel = do
                               <*> newMVar ZMQConnectionInit
                               <*> newEmptyMVar
         (cid, _) <- modifyMVar (_transportPending v) $
-          nextElementM (fmap isNothing deRefWeak) (const $ mkWeakPtr conn Nothing)
+          nextElementM (fmap isNothing . deRefWeak) (const $ mkWeakPtr conn Nothing)
         remoteHostSendMessage w
           [encode' $ MessageInitConnection cid (_localEndPointAddress ourEp) rel theirAddr]
         return $ (RemoteHostValid (ValidRemoteHost c m'), Right (cid, conn))
@@ -595,7 +607,7 @@ remoteHostSendMessageLock host msg = join $ withMVar (_remoteHostState host) $ \
     RemoteHostClosed  -> remoteHostReconnect host >> return (remoteHostSendMessageLock host msg)
 
 remoteHostSendMessage :: ValidRemoteHost -> [ByteString] -> IO ()
-remoteHostSendMessage (ValidRemoteHost ch _) msgs = atomically $ writeTMChan ch msgs
+remoteHostSendMessage (ValidRemoteHost ch _) msgs = writeChan ch msgs
 
 remoteHostReconnect :: RemoteHost -> IO ()
 remoteHostReconnect = error "remoteHostReconnect"
@@ -611,19 +623,17 @@ createRemoteHost transport addr = do
     x <- ZMQ.async $ bracket 
        (do push <- ZMQ.socket ZMQ.Push
            ZMQ.connect push (B8.unpack addr)
-           ch <- liftIO newTMChanIO
+           ch <- liftIO newChan
            ZMQ.sendMulti push $ ident :| [encode' MessageConnect]
            _ <- liftIO $ swapMVar state (RemoteHostValid (ValidRemoteHost ch M.empty))
            liftIO $ putMVar ready ()
            return (push, ch))
        (\(push, ch) -> do
-           liftIO $ modifyMVar_ state $ \_ -> do 
-              atomically $ closeTMChan ch
-              return RemoteHostClosed
+           liftIO $ modifyMVar_ state $ const $ return RemoteHostClosed
            ZMQ.disconnect push (B8.unpack addr)
            ZMQ.close push
        ) $ \(push, ch) -> forever $ do -- XXX: close someday
-       Just msgs  <- liftIO $ atomically $ readTMChan ch
+       msgs  <- liftIO $ readChan ch
        ZMQ.sendMulti push $ ident :| msgs
        liftIO yield
     liftIO $ do
