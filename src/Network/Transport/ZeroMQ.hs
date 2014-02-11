@@ -31,7 +31,7 @@ import           Control.Monad
       , join
       , replicateM_
       )
-import           Control.Monad.CatchIO
+import           Control.Monad.Catch
       ( bracket 
       )
 import           Control.Monad.IO.Class

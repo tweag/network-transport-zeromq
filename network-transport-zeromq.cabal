@@ -28,7 +28,7 @@ library
                        bytestring,
                        transformers,
                        semigroups >= 0.12,
-                       MonadCatchIO-mtl,
+                       exceptions >= 0.3.3,
                        void
 
   exposed-modules:     Network.Transport.ZeroMQ
