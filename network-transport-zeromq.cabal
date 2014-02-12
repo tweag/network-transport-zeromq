@@ -29,16 +29,19 @@ library
                        transformers,
                        semigroups >= 0.12,
                        exceptions >= 0.3.3,
-                       void
+                       void,
+                       random >= 1.0
 
   exposed-modules:     Network.Transport.ZeroMQ
   other-modules:       Network.Transport.ZeroMQ.Types
+                       System.ZMQ4.Utils
   -- other-extensions:    
   hs-source-dirs:      src
   ghc-options:         -Wall
   default-extensions:  DeriveGeneric
                        DeriveDataTypeable
   default-language:    Haskell2010
+
  
 Test-Suite test-zeromq
   type:            exitcode-stdio-1.0
@@ -46,6 +49,7 @@ Test-Suite test-zeromq
   build-depends:   base >= 4.4 && < 5,
                    network-transport >= 0.2 && < 0.4,
                    network-transport-zeromq,
+                   zeromq4-haskell >= 0.2,
                    network-transport-tests >= 0.1.0.1 && < 0.2
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   hs-source-dirs:  tests
@@ -61,7 +65,8 @@ Test-Suite test-zeromq-multi
                    mtl,
                    network-transport >= 0.2 && < 0.4,
                    network-transport-zeromq,
-                   network-transport-tests >= 0.1.0.1 && < 0.2
+                   network-transport-tests >= 0.1.0.1 && < 0.2,
+                   zeromq4-haskell >= 0.2
   ghc-options:     -Wall -threaded -rtsopts -with-rtsopts=-N2 -fno-warn-unused-do-bind
   hs-source-dirs:  tests
   default-language:    Haskell2010
