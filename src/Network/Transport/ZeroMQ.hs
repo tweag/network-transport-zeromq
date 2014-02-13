@@ -452,19 +452,28 @@ remoteEndPointOpenConnection x@(RemoteEndPoint addr _ state) rel = join . liftIO
                             <*> pure rel
                             <*> newMVar ZMQConnectionInit
                             <*> newEmptyMVar
-      let go j = case j `M.lookup` m of
-                  Nothing -> j
-                  Just _  -> go (succ j)
-          i'   = go i
+      let i' = succ i
       return ( RemoteEndPointValid (ValidRemoteEndPoint c (Counter i' (M.insert i' conn m)))
              , do liftIO $ writeChan c [encode' $ MessageInitConnection i' addr rel]
                   return $ Right conn
              )
     RemoteEndPointPending -> return (RemoteEndPointPending, remoteEndPointOpenConnection x rel)
 
-remoteEndPointIncommingConnection = undefined
+remoteEndPointIncommingConnection :: b -> RemoteEndPoint -> ConnectionId -> Reliability -> ZMQ.ZMQ z a
+remoteEndPointIncommingConnection mstate s t rel = liftIO $ modifyMVar mstate $ \c@(Counter i m) ->
+  withMVar (remoteEndPointState s) $ \case
+    RemoteEndPointClosed -> return (c, Nothing)
+    RemoteEndPointValid (ValidRemoteEndPoint c (Counter i m)) -> do
+      writeChan c [encode' $ MessageInitConnectionOk t i]
+      conn <- ZMQConnection <$> pure c
+                            <*> pure rel
+                            <*> newMVar ZMQConnectionInit
+                            <*> newEmptyMVar
+      return (Counter (succ i) (M.insert (succ i) c m), Just $ succ i)
+  
 
--- remoteEndPointCloseConnection :: RemoteEndPoint -> ConnectionId -> ZMQ.ZMQ z a
+
+remoteEndPointCloseConnection :: RemoteEndPoint -> ConnectionId -> ZMQ.ZMQ z a
 remoteEndPointCloseConnection = undefined 
 {-        
     case cid `M.lookup` connections of
