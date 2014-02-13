@@ -23,11 +23,11 @@ library
                       stm >= 2.4,
                       stm-chans >= 0.3,
                       containers >= 0.5,
-                      bytestring,
-                      transformers,
+                      bytestring >= 0.10,
+                      transformers >= 0.3,
                       semigroups >= 0.12,
                       exceptions >= 0.3,
-                      void,
+                      void >= 0.6,
                       random >= 1.0
   exposed-modules:    Network.Transport.ZeroMQ
   other-modules:      Network.Transport.ZeroMQ.Types
