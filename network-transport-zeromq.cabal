@@ -36,6 +36,10 @@ library
   ghc-options:        -Wall
   default-extensions: DeriveGeneric
                       DeriveDataTypeable
+                      OverloadedStrings
+                      LambdaCase
+                      ScopedTypeVariables
+                      StandaloneDeriving
   default-language:   Haskell2010
 
 Test-Suite test-zeromq
