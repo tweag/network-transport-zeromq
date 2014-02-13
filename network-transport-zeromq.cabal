@@ -5,7 +5,7 @@ license:             BSD3
 license-file:        LICENSE
 author:              Alexander Vershilov
 maintainer:          Alexander Vershilov <alexander.vershilov@tweag.io>
-copyright:           (c) 2014, Tweag I/O
+copyright:           (c) 2014, EURL Tweag
 category:            Network
 build-type:          Simple
 -- extra-source-files:  
