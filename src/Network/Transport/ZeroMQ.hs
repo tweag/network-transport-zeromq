@@ -337,8 +337,17 @@ endPointCreate params address = do
                                         <*> newMVar (ZMQConnectionValid $ ValidZMQConnection (succ i))
                                         <*> newEmptyMVar
                   return $ (EndPointThreadState (Counter (succ i) (M.insert (succ i) conn m)) r, return ())
-        MessageCloseConnection idx ->
-          void $ remoteEndPointCloseIncommingConnection mstate idx identity
+        MessageCloseConnection idx -> join $ liftIO $
+          modifyMVar mstate $ \c@(EndPointThreadState (Counter i m) r) ->
+            case idx `M.lookup` m of
+              Nothing  -> return (c, markRemoteHostFailed mstate theirAddress)
+              Just conn -> do
+                old <- modifyMVar (connectionState conn) (\c -> return (ZMQConnectionClosed, c))
+                case old of
+                  ZMQConnectionClosed -> return (c, return ())
+                  ZMQConnectionValid (ValidZMQConnection _) -> do
+                      atomically $ writeTMChan chan (ConnectionClosed idx)
+                      return (EndPointThreadState (Counter i (idx `M.delete` m)) r, return ())
         MessageInitConnectionOk ourId theirId -> do
           liftIO $ withMVar mstate $ \c@(EndPointThreadState _ r) ->
             case theirAddress `M.lookup` r of
