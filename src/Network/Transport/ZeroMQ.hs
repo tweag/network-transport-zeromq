@@ -334,7 +334,8 @@ endPointCreate params address = do
                          , do liftIO $ atomically $ writeTMChan chan $ ConnectionOpened ourId rel theirEp
                               remoteEndPointSendMessage rep (MessageInitConnectionOk theirId ourId)
                          )
-        MessageCloseConnection idx -> remoteEndPointCloseConnection mstate idx
+        MessageCloseConnection idx ->
+          remoteEndPointCloseConnection mstate idx
         MessageInitConnectionOk ourId theirId -> do
           rep <- createOrGetRemoteEndPoint mstate ourEp theirAddress
           remoteEndPointRegisterConnection rep ourId theirId
@@ -353,8 +354,10 @@ endPointCreate params address = do
                   , close = apiClose c
                   }
         go pull ourAddress mstate chIn
-      LocalEndPointConnectionClose{} -> undefined
-      LocalEndPointClose{}           -> undefined
+      LocalEndPointConnectionClose idx  -> do
+        remoteEndPointCloseConnection mstate idx
+        go pull ourAddress mstate chIn
+      LocalEndPointClose{}           -> return ()
     finalizeEndPoint receiver = do 
       liftIO $ A.cancel receiver
     accure = do
@@ -386,6 +389,7 @@ apiSend c@(ZMQConnection e _ s r) b = join $ withMVar (remoteEndPointState e) $ 
       writeChan ch $ (encode' $ MessageData idx):b
       return $ return $ Right ()
 
+-- TODO: move this functionality to the internal function
 apiClose :: ZMQConnection -> IO ()
 apiClose c@(ZMQConnection e _ s r) = withMVar (remoteEndPointState e) $ \case
   RemoteEndPointClosed -> return ()

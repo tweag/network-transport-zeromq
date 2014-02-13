@@ -128,7 +128,7 @@ data ValidZMQConnection = ValidZMQConnection !Word64
 data LocalEndPointEvent
         = LocalEndPointConnectionOpen LocalEndPoint EndPointAddress Reliability 
             (MVar (Either (TransportError ConnectErrorCode) Connection))
-        | LocalEndPointConnectionClose
+        | LocalEndPointConnectionClose ConnectionId
         | LocalEndPointClose
 
 data RemoteEndPoint = RemoteEndPoint
