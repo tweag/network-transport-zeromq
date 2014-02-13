@@ -12,10 +12,6 @@ module Network.Transport.ZeroMQ.Types
     , LocalEndPoint(..)
     , LocalEndPointState(..)
     , ValidLocalEndPointState(..)
-      -- ** Remote host
-    , RemoteHost(..)
-    , RemoteHostState(..)
-    , ValidRemoteHost(..)
       -- ** ZeroMQ connection
     , ZMQConnection(..)
     , ZMQConnectionState(..)
@@ -93,22 +89,6 @@ data ValidLocalEndPointState = ValidLocalEndPointState
       -- need to keep list of remote end points only
       }
 -}
-
-data RemoteHost = RemoteHost 
-      { _remoteHostUrl   :: !ByteString
-      , _remoteHostState :: !(MVar RemoteHostState)
-      , _remoteHostReady :: !(MVar ())
-      }
-
-data RemoteHostState
-        = RemoteHostValid ValidRemoteHost
-        | RemoteHostPending
-        | RemoteHostClosed
-
-data ValidRemoteHost = ValidRemoteHost
-        { remoteHostChannel :: !(Chan [ByteString])
-        , remoteHostEndPoints :: !(Map EndPointAddress RemoteEndPoint)
-        }
 
 data ZMQConnection = ZMQConnection
       { connectionRemoteEndPoint :: !RemoteEndPoint

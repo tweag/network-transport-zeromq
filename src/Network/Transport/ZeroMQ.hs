@@ -174,10 +174,6 @@ data ZMQMessage
 
 instance Binary ZMQMessage
 
-data ZMQAction
-        = ActionConnectHost !ByteString !(MVar RemoteHost)
-        | ActionCloseEP !ByteString !EndPointAddress
-
 data TransportEvents
         = TransportEndPointCreate (MVar (Either (TransportError NewEndPointErrorCode) LocalEndPoint))
         | TransportEndPointClose Int
