@@ -353,7 +353,6 @@ endPointCreate params address = do
                   , close = apiClose c
                   }
         go pull ourAddress mstate chIn
-      LocalEndPointSendMessage{}     -> undefined
       LocalEndPointConnectionClose{} -> undefined
       LocalEndPointClose{}           -> undefined
     finalizeEndPoint receiver = do 
@@ -396,8 +395,8 @@ apiClose c@(ZMQConnection e _ s r) = withMVar (remoteEndPointState e) $ \case
     ZMQConnectionClosed -> return ZMQConnectionClosed
     ZMQConnectionValid (ValidZMQConnection idx) -> do
         writeChan ch $ [encode' $ MessageCloseConnection idx]
+        -- XXX: notify localEndPointProcess
         return ZMQConnectionClosed
-        -- TODO: notify localEndPointProcess
 
 
 -- | Remote end point connection encapsulated into a thread
