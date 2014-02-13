@@ -324,16 +324,19 @@ endPointCreate params address = do
               Nothing -> return $ markRemoteHostFailed mstate theirAddress 
         MessageConnect -> do
           void $ createOrGetRemoteEndPoint mstate ourEp theirAddress
-        MessageInitConnection theirId theirEp rel -> join $ liftIO $
-          modifyMVar mstate $ \c@(EndPointThreadState _ r) ->
+        MessageInitConnection theirId theirEp rel -> join $ liftIO $ 
+          modifyMVar mstate $ \c@(EndPointThreadState (Counter i m) r) ->
             case theirEp `M.lookup` r of
               Nothing  -> return (c, markRemoteHostFailed mstate theirAddress)
-              Just rep -> do
-                ourId <- remoteEndPointIncommingConnection rep
-                return $ ( c -- XXX:
-                         , do liftIO $ atomically $ writeTMChan chan $ ConnectionOpened ourId rel theirEp
-                              remoteEndPointSendMessage rep (MessageInitConnectionOk theirId ourId)
-                         )
+              Just rep -> withMVar (remoteEndPointState rep) $ \case
+                RemoteEndPointClosed -> undefined 
+                RemoteEndPointValid (ValidRemoteEndPoint ch _) -> do                                  -- XXX: count incomming
+                  writeChan ch [encode' $ MessageInitConnectionOk theirId (succ i)]
+                  conn <- ZMQConnection <$> pure rep
+                                        <*> pure rel
+                                        <*> newMVar (ZMQConnectionValid $ ValidZMQConnection (succ i))
+                                        <*> newEmptyMVar
+                  return $ (EndPointThreadState (Counter (succ i) (M.insert (succ i) conn m)) r, return ())
         MessageCloseConnection idx ->
           remoteEndPointCloseConnection mstate idx
         MessageInitConnectionOk ourId theirId -> do
@@ -459,25 +462,12 @@ remoteEndPointOpenConnection x@(RemoteEndPoint addr _ state) rel = join . liftIO
              )
     RemoteEndPointPending -> return (RemoteEndPointPending, remoteEndPointOpenConnection x rel)
 
-remoteEndPointIncommingConnection :: b -> RemoteEndPoint -> ConnectionId -> Reliability -> ZMQ.ZMQ z a
-remoteEndPointIncommingConnection mstate s t rel = liftIO $ modifyMVar mstate $ \c@(Counter i m) ->
-  withMVar (remoteEndPointState s) $ \case
-    RemoteEndPointClosed -> return (c, Nothing)
-    RemoteEndPointValid (ValidRemoteEndPoint c (Counter i m)) -> do
-      writeChan c [encode' $ MessageInitConnectionOk t i]
-      conn <- ZMQConnection <$> pure c
-                            <*> pure rel
-                            <*> newMVar ZMQConnectionInit
-                            <*> newEmptyMVar
-      return (Counter (succ i) (M.insert (succ i) c m), Just $ succ i)
-  
 
-
-remoteEndPointCloseConnection :: RemoteEndPoint -> ConnectionId -> ZMQ.ZMQ z a
+remoteEndPointCloseConnection :: MVar EndPointThreadState -> ConnectionId -> ZMQ.ZMQ z a
 remoteEndPointCloseConnection = undefined 
-{-        
-    case cid `M.lookup` connections of
-        Nothing -> return connections
+{-
+  case cid `M.lookup` connections of
+    Nothing -> return connections
         Just cn -> atomically $ writeTMChan ch $ ConnectionClosed idx
                    -- XXX: notify RemoteEndPoint
                    return (Counter n (M.delete idx m), conn)
