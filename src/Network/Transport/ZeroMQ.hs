@@ -404,7 +404,6 @@ apiClose c@(ZMQConnection e _ s r) = withMVar (remoteEndPointState e) $ \case
         -- XXX: notify localEndPointProcess
         return ZMQConnectionClosed
 
-
 -- | Remote end point connection encapsulated into a thread
 createOrGetRemoteEndPoint :: MVar EndPointThreadState
                           -> EndPointAddress
@@ -520,51 +519,6 @@ remoteEndPointSendMessage = undefined
     _ -> error "RemoteHost is not valid"
 -}
 
--- createRemoteHost identity = error "createRemoteHost"
-{-
-    processQueue transport = do
-      (TransportValid (ValidTransportState _ _ chan _ _)) <- liftIO $ readMVar (_transportState transport)
-      forever $ do
-        action <- liftIO $ readChan chan
-        case action of
-          ActionConnectHost ident box -> do
-          ActionCloseEP _ident _addr -> do
-              liftIO $ printf "[%s]: [internal] action close ep" (B8.unpack socketAddr)
-              return ()
--}
-
-{-
-    where
-      recipient lep pull = ZMQ.runZMQ $ forever
-      send push = bracket accure release $ \(push, ch) -> forever $ do
-           msgs  <- liftIO $ readChan ch
-           ZMQ.sendMulti push $ ident :| msgs
-           liftIO yield
-        where
-          accure = do
-            push <- ZMQ.socket ZMQ.Push
-            ZMQ.connect push (B8.unpack addr)
-            ch <- liftIO newChan
-            ZMQ.sendMulti push $ ident :| [encode' MessageConnect]
-            _ <- liftIO $ swapMVar state (RemoteHostValid (ValidRemoteHost ch M.empty))
-            liftIO $ putMVar ready ()
-            return (push, ch)
-          release (push, ch) = do
-            liftIO $ modifyMVar_ state $ const $ return RemoteHostClosed
-            ZMQ.disconnect push (B8.unpack addr)
-            ZMQ.close push
-
-
-
-
-
-
-apiGetUri :: EndPointAddress -> Reliability -> ByteString
-apiGetUri addr _rel = B8.init $ fst $ B8.breakEnd (=='/') $ endPointAddressToByteString addr
-
-apiGetEndPointId :: EndPointAddress -> Word32
-apiGetEndPointId epa = read . B8.unpack . snd $ B8.breakEnd (=='/') $ endPointAddressToByteString epa
--}
 encode' :: Binary a => a  -> ByteString
 encode' = B.concat . BL.toChunks . encode
 
