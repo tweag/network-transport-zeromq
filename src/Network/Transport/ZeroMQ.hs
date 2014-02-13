@@ -309,7 +309,9 @@ endPointCreate params address = do
           mainThread     <- ZMQ.async $ go pull addr state chIn `finally` finalizeEndPoint state receiverThread
           mt <- liftIO $ newMVar (LocalEndPointValid $ ValidLocalEndPointState chIn chOut mainThread)
           return $ Right (port, LocalEndPoint addr mt)
-      Left (_::SomeException)  -> return $ Left $ TransportError NewEndPointInsufficientResources "no free sockets"
+      Left (e::SomeException)  -> do
+          liftIO $ print e
+          return $ Left $ TransportError NewEndPointInsufficientResources "no free sockets"
   where
     receiver pull ourEp mstate chan = forever $ do
       (identity:cmd:msgs) <- ZMQ.receiveMulti pull 
@@ -404,8 +406,7 @@ endPointCreate params address = do
               ZMQ.setPlainUserName (ZMQ.restrict u) pull
       ZMQ.setSendHighWM (ZMQ.restrict (highWaterMark params)) pull
       ZMQ.setLinger (ZMQ.restrict (lingerPeriod params)) pull
-
-      port <- ZMQ.bindFromRangeRandom pull address (minPort params) (maxPort params) (maxTries params)
+      port <- ZMQ.bindFromRangeRandom pull ("tcp://"++address) (minPort params) (maxPort params) (maxTries params)
       return (port, pull)
     release port pull = do
       ZMQ.unbind pull (address ++ ":" ++ show port)
@@ -491,31 +492,11 @@ remoteEndPointOpenConnection x@(RemoteEndPoint addr _ state) rel = join . liftIO
              )
     RemoteEndPointPending -> return (RemoteEndPointPending, remoteEndPointOpenConnection x rel)
 
--- Use locks: TransportConnection
-remoteEndPointCloseIncommingConnection :: MVar EndPointThreadState
-                         -> ConnectionId -> ByteString -> ZMQ.ZMQ z (Maybe ZMQConnection)
-remoteEndPointCloseIncommingConnection v idx ident = undefined
-
 remoteEndPointClose :: RemoteEndPoint -> ZMQ.ZMQ z a
 remoteEndPointClose = undefined
 
 markRemoteHostFailed :: a -> EndPointAddress -> ZMQ.ZMQ z b
 markRemoteHostFailed = undefined
-
-remoteEndPointSendMessage = undefined
-{-
-  modifyMVar (_remoteHostState host) $ \case
-    RemoteHostValid (ValidRemoteHost x m) -> do
-        (rep, m') <- case ep `M.lookup` m of
-          Just x -> return (x, m)
-          Nothing -> do
-            x <- RemoteEndPoint <$> pure ep
-                                <*> pure host
-                                <*> newMVar (RemoteEndPointValid $! ValidRemoteEndPoint M.empty)
-            return (x, M.insert ep x m)
-        return (RemoteHostValid (ValidRemoteHost x m'), rep)
-    _ -> error "RemoteHost is not valid"
--}
 
 encode' :: Binary a => a  -> ByteString
 encode' = B.concat . BL.toChunks . encode

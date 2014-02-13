@@ -9,7 +9,7 @@ import Network.Transport.Tests
 import Network.Transport.Tests.Auxiliary (runTests)
 
 main :: IO ()
-main = testTransport' (either (Left . show) (Right) <$> createTransport defaultZeroMQParameters "127.0.0.1" "3541")
+main = testTransport' (either (Left . show) (Right) <$> createTransport defaultZeroMQParameters "127.0.0.1")
 
 testTransport' :: IO (Either String Transport) -> IO ()
 testTransport' newTransport = do

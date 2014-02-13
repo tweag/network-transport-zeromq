@@ -57,7 +57,7 @@ defaultZeroMQParameters = ZeroMQParameters
       , lingerPeriod  = 0
       , authorizationType = ZeroMQNoAuth
       , minPort       = 2000
-      , maxPort       = 65000
+      , maxPort       = 60000
       , maxTries      = 1000
       }
 
