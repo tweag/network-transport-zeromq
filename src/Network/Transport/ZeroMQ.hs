@@ -306,7 +306,7 @@ endPointCreate params address = do
           state <- liftIO $ newMVar (EndPointThreadState (Counter 0 M.empty) M.empty)
           let addr = EndPointAddress $ B8.pack (address ++ ":" ++ show port)
           receiverThread <- ZMQ.async $ receiver pull addr state chOut `finally` release port pull
-          mainThread     <- ZMQ.async $ go pull addr state chIn `finally` finalizeEndPoint receiverThread
+          mainThread     <- ZMQ.async $ go pull addr state chIn `finally` finalizeEndPoint state receiverThread
           mt <- liftIO $ newMVar (LocalEndPointValid $ ValidLocalEndPointState chIn chOut mainThread)
           return $ Right (port, LocalEndPoint addr mt)
       Left (_::SomeException)  -> return $ Left $ TransportError NewEndPointInsufficientResources "no free sockets"
@@ -358,8 +358,10 @@ endPointCreate params address = do
         remoteEndPointCloseConnection mstate idx
         go pull ourAddress mstate chIn
       LocalEndPointClose{}           -> return ()
-    finalizeEndPoint receiver = do 
-      liftIO $ A.cancel receiver
+    finalizeEndPoint mstate receiver = liftIO $ do
+      withMVar mstate $ \(EndPointThreadState _ rp) ->
+        forM_ (M.elems rp) $ \(RemoteEndPoint _ x _) -> A.cancel x
+      A.cancel receiver
     accure = do
       pull <- ZMQ.socket ZMQ.Pull
       case authorizationType params of
