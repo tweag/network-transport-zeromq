@@ -56,6 +56,7 @@ import Network.Transport.ZeroMQ.Types
 import qualified System.ZMQ4.Monadic as ZMQ
 import qualified System.ZMQ4.Utils   as ZMQ
 
+import Text.Printf
 -- ---------------------------------------------------------------------------
 -- Missing instances
 -- ---------------------------------------------------------------------------
@@ -164,7 +165,7 @@ data ValidTransportState = ValidTransportState
 data ZMQMessage 
       = MessageConnect -- ^ Connection greeting
       | MessageConnectOk !ByteString
-      | MessageInitConnection !ConnectionId !EndPointAddress !Reliability
+      | MessageInitConnection !ConnectionId !Reliability
       | MessageInitConnectionOk !ConnectionId !ConnectionId
       | MessageCloseConnection !ConnectionId
       | MessageData !ConnectionId
@@ -206,7 +207,8 @@ createTransport params host = do
     mainloop mstate chan = liftIO (readChan chan) >>= go
       where 
         go (TransportEndPointCreate reply) = do
-            eEndPoint <- endPointCreate params (B8.unpack host)
+            liftIO $ print "[transport] endpoint create"
+            eEndPoint <- endPointCreate params (B8.unpack addr)
             liftIO $ putMVar reply =<< case eEndPoint of
               Right (port,ep) -> liftIO $ modifyMVar mstate $ \case
                 TransportValid i -> return 
@@ -259,11 +261,13 @@ apiNewEndPoint transport = join $ withMVar (_transportState transport) inner
                 LocalEndPointValid (ValidLocalEndPointState chIn chOut _) ->
                   return $ Right 
                          $ EndPoint
-                    { receive = atomically $ do
-                        mx <- readTMChan chOut
-                        case mx of
-                          Nothing -> error "channel is closed"
-                          Just x  -> return x
+                    { receive = do
+                        print "[endpoint] receive"
+                        atomically $ do
+                            mx <- readTMChan chOut
+                            case mx of
+                              Nothing -> error "channel is closed"
+                              Just x  -> return x
                     , address = _localEndPointAddress ep
                     , connect = apiConnect ep
                     , closeEndPoint = do
@@ -283,7 +287,8 @@ apiConnect :: LocalEndPoint
            -> Reliability
            -> ConnectHints
            -> IO (Either (TransportError ConnectErrorCode) Connection)
-apiConnect ourEp theirAddr reliability _hints = join $
+apiConnect ourEp theirAddr reliability _hints = join $ do
+    putStrLn "[user] API connect"
     withMVar (_localEndPointState ourEp) $ \case
       LocalEndPointValid (ValidLocalEndPointState chIn _ _) -> do
         reply <- newEmptyMVar
@@ -301,20 +306,28 @@ endPointCreate params address = do
     em <- try $ accure
     case em of
       Right (port,pull) -> do
+          liftIO $ printf "[end-point-create] > Right \n"
           chIn  <- liftIO $ newChan
           chOut <- liftIO $ newTMChanIO
           state <- liftIO $ newMVar (EndPointThreadState (Counter 0 M.empty) M.empty)
           let addr = EndPointAddress $ B8.pack (address ++ ":" ++ show port)
+          liftIO $ printf "[end-point-create] addr: %s\n" (B8.unpack $ endPointAddressToByteString addr)
           receiverThread <- ZMQ.async $ receiver pull addr state chOut `finally` release port pull
           mainThread     <- ZMQ.async $ go pull addr state chIn `finally` finalizeEndPoint state receiverThread
           mt <- liftIO $ newMVar (LocalEndPointValid $ ValidLocalEndPointState chIn chOut mainThread)
+          liftIO $ do
+              A.link receiverThread
+              A.link mainThread
           return $ Right (port, LocalEndPoint addr mt)
       Left (e::SomeException)  -> do
+          liftIO $ printf "[end-point-create] > Left \n"
           liftIO $ print e
           return $ Left $ TransportError NewEndPointInsufficientResources "no free sockets"
   where
     receiver pull ourEp mstate chan = forever $ do
+      liftIO $ printf "[%s] wait\n" address
       (identity:cmd:msgs) <- ZMQ.receiveMulti pull 
+      liftIO $ printf "[%s] ..wait\n" address
       let theirAddress  = EndPointAddress identity
       case decode' cmd of
         MessageData idx -> join $ liftIO $ 
@@ -325,10 +338,16 @@ endPointCreate params address = do
                 return $ return ()
               Nothing -> return $ markRemoteHostFailed mstate theirAddress 
         MessageConnect -> do
+          liftIO $ printf "[%s] message connect from %s\n"
+                          (B8.unpack $ endPointAddressToByteString ourEp)
+                          (B8.unpack $ endPointAddressToByteString theirAddress)
           void $ createOrGetRemoteEndPoint mstate ourEp theirAddress
-        MessageInitConnection theirId theirEp rel -> join $ liftIO $ 
+        MessageInitConnection theirId rel -> join $ liftIO $ do
+          liftIO $ printf "[%s] message init connection from %s\n"
+                          (B8.unpack $ endPointAddressToByteString ourEp)
+                          (B8.unpack $ endPointAddressToByteString theirAddress)
           modifyMVar mstate $ \c@(EndPointThreadState (Counter i m) r) ->
-            case theirEp `M.lookup` r of
+            case theirAddress `M.lookup` r of
               Nothing  -> return (c, markRemoteHostFailed mstate theirAddress)
               Just rep -> withMVar (remoteEndPointState rep) $ \case
                 RemoteEndPointClosed -> undefined 
@@ -338,7 +357,8 @@ endPointCreate params address = do
                                         <*> pure rel
                                         <*> newMVar (ZMQConnectionValid $ ValidZMQConnection (succ i))
                                         <*> newEmptyMVar
-                  return $ (EndPointThreadState (Counter (succ i) (M.insert (succ i) conn m)) r, return ())
+                  return ( EndPointThreadState (Counter (succ i) (M.insert (succ i) conn m)) r
+                         , liftIO $ atomically $ writeTMChan chan (ConnectionOpened (succ i) rel theirAddress))
         MessageCloseConnection idx -> join $ liftIO $
           modifyMVar mstate $ \c@(EndPointThreadState (Counter i m) r) ->
             case idx `M.lookup` m of
@@ -351,15 +371,22 @@ endPointCreate params address = do
                       atomically $ writeTMChan chan (ConnectionClosed idx)
                       return (EndPointThreadState (Counter i (idx `M.delete` m)) r, return ())
         MessageInitConnectionOk ourId theirId -> do
+          liftIO $ printf "[%s] message init connection ok from %s: %i -> %i\n"
+                          (B8.unpack $ endPointAddressToByteString ourEp)
+                          (B8.unpack $ endPointAddressToByteString theirAddress)
+                          ourId
+                          theirId
           liftIO $ withMVar mstate $ \c@(EndPointThreadState _ r) ->
             case theirAddress `M.lookup` r of
-              Nothing  -> return () -- XXX: send message to the host
+              Nothing  -> printf "NOTHING\n" >> return () -- XXX: send message to the host
               Just rep -> modifyMVar_ (remoteEndPointState rep) $ \case
                 RemoteEndPointClosed -> undefined
                 t@(RemoteEndPointValid (ValidRemoteEndPoint ch (Counter x m))) -> do
+                  liftIO $ printf "JUST\n"
                   case ourId `M.lookup` m of
-                      Nothing -> return t -- XXX: send message to the host
+                      Nothing -> liftIO (printf "NOTHING") >> return t -- XXX: send message to the host
                       Just c  -> do
+                        liftIO $ printf "!!!"
                         modifyMVar_ (connectionState c) (const $ return $ ZMQConnectionValid (ValidZMQConnection theirId)) -- XXX: check old state
                         tryPutMVar (connectionReady c) ()
                         return $! RemoteEndPointValid (ValidRemoteEndPoint ch (Counter x (ourId `M.delete` m)))
@@ -368,6 +395,9 @@ endPointCreate params address = do
           remoteEndPointClose rep
     go pull ourAddress mstate chIn = liftIO (readChan chIn) >>= \case
       LocalEndPointConnectionOpen ourEp theirAddress rel reply -> do
+        liftIO $ printf "[%s][go] connection open to %s\n" 
+                        (B8.unpack $ endPointAddressToByteString ourAddress)
+                        (B8.unpack $ endPointAddressToByteString theirAddress)
         host <- createOrGetRemoteEndPoint mstate ourAddress theirAddress
         econn <- remoteEndPointOpenConnection host rel
         liftIO . putMVar reply $ 
@@ -406,7 +436,7 @@ endPointCreate params address = do
               ZMQ.setPlainUserName (ZMQ.restrict u) pull
       ZMQ.setSendHighWM (ZMQ.restrict (highWaterMark params)) pull
       ZMQ.setLinger (ZMQ.restrict (lingerPeriod params)) pull
-      port <- ZMQ.bindFromRangeRandom pull ("tcp://"++address) (minPort params) (maxPort params) (maxTries params)
+      port <- ZMQ.bindFromRangeRandom pull address (minPort params) (maxPort params) (maxTries params)
       return (port, pull)
     release port pull = do
       ZMQ.unbind pull (address ++ ":" ++ show port)
@@ -443,6 +473,9 @@ createOrGetRemoteEndPoint :: MVar EndPointThreadState
                           -> EndPointAddress
                           -> ZMQ.ZMQ z RemoteEndPoint
 createOrGetRemoteEndPoint mstate ourEp ep = do
+    liftIO $ printf "[%s][create-remote-endpoint] to %s\n"
+                    (B8.unpack $ endPointAddressToByteString ourEp)
+                    (B8.unpack $ endPointAddressToByteString ep)
     m <- liftIO $ takeMVar mstate
     go m `onException` (liftIO $ putMVar mstate m)
   where
@@ -457,18 +490,25 @@ createOrGetRemoteEndPoint mstate ourEp ep = do
           liftIO (putMVar mstate $ m{endPointRemotes = M.insert ep rp (endPointRemotes m)})
           return rp
        Just t -> do
+          liftIO $ putStrLn "[create-remote-end-point] found"
           liftIO (putMVar mstate m)
           return t
     run push state chan = initialize >> mainloop
       where
         initialize = do
-            ZMQ.sendMulti push $ ident :| [encode' MessageConnect]                          -- XXX: [msg]
+            liftIO $ printf "[%s][create-remote-endpoint][initialize]\n"
+                            (B8.unpack $ endPointAddressToByteString ourEp)
+            ZMQ.connect push (B8.unpack $ endPointAddressToByteString ep)
+            ZMQ.sendMulti push $ ident :| [encode' MessageConnect]                        -- XXX: [msg]
             void . liftIO $ swapMVar state (RemoteEndPointValid (ValidRemoteEndPoint chan (Counter 0 M.empty)))
         mainloop   = forever $ do
+            liftIO $ printf "[%s][create-remote-endpoint][mainloop]\n"
+                            (B8.unpack $ endPointAddressToByteString ourEp)
             x <- liftIO $ readChan chan
             ZMQ.sendMulti push $ ident :| x                                                 -- XXX: [msg]
             liftIO yield
     shutdown push state = do
+        liftIO $ putStrLn "[create-remote-end-point] shutdown\n"
         void . liftIO $ swapMVar state RemoteEndPointClosed
         ZMQ.sendMulti push $ ident :| [encode' MessageEndPointClose]                        -- XXX: [msg]
         ZMQ.disconnect push (B8.unpack $ endPointAddressToByteString ep)
@@ -476,9 +516,9 @@ createOrGetRemoteEndPoint mstate ourEp ep = do
 
 -- | XXX: This function is not asynchronous as possible
 remoteEndPointOpenConnection :: RemoteEndPoint -> Reliability -> ZMQ.ZMQ z (Either (TransportError ConnectErrorCode) ZMQConnection)
-remoteEndPointOpenConnection x@(RemoteEndPoint addr _ state) rel = join . liftIO $
+remoteEndPointOpenConnection x@(RemoteEndPoint addr _ state) rel = join . liftIO $ do
   modifyMVar state $ \case
-    RemoteEndPointClosed ->
+    RemoteEndPointClosed -> do
       return (RemoteEndPointClosed, return $ Left $ TransportError ConnectFailed "Transport is closed.")
     RemoteEndPointValid (ValidRemoteEndPoint c (Counter i m)) -> do
       conn <- ZMQConnection <$> pure x 
@@ -487,10 +527,11 @@ remoteEndPointOpenConnection x@(RemoteEndPoint addr _ state) rel = join . liftIO
                             <*> newEmptyMVar
       let i' = succ i
       return ( RemoteEndPointValid (ValidRemoteEndPoint c (Counter i' (M.insert i' conn m)))
-             , do liftIO $ writeChan c [encode' $ MessageInitConnection i' addr rel]
+             , do liftIO $ writeChan c [encode' $ MessageInitConnection i' rel]
                   return $ Right conn
              )
-    RemoteEndPointPending -> return (RemoteEndPointPending, remoteEndPointOpenConnection x rel)
+    RemoteEndPointPending -> do
+      return (RemoteEndPointPending, remoteEndPointOpenConnection x rel)
 
 remoteEndPointClose :: RemoteEndPoint -> ZMQ.ZMQ z a
 remoteEndPointClose = undefined
