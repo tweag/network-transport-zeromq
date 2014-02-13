@@ -340,8 +340,18 @@ endPointCreate params address = do
         MessageCloseConnection idx ->
           void $ remoteEndPointCloseIncommingConnection mstate idx identity
         MessageInitConnectionOk ourId theirId -> do
-          rep <- createOrGetRemoteEndPoint mstate ourEp theirAddress
-          remoteEndPointRegisterConnection rep ourId theirId
+          liftIO $ withMVar mstate $ \c@(EndPointThreadState _ r) ->
+            case theirAddress `M.lookup` r of
+              Nothing  -> return () -- XXX: send message to the host
+              Just rep -> modifyMVar_ (remoteEndPointState rep) $ \case
+                RemoteEndPointClosed -> undefined
+                t@(RemoteEndPointValid (ValidRemoteEndPoint ch (Counter x m))) -> do
+                  case ourId `M.lookup` m of
+                      Nothing -> return t -- XXX: send message to the host
+                      Just c  -> do
+                        modifyMVar_ (connectionState c) (const $ return $ ZMQConnectionValid (ValidZMQConnection theirId)) -- XXX: check old state
+                        tryPutMVar (connectionReady c) ()
+                        return $! RemoteEndPointValid (ValidRemoteEndPoint ch (Counter x (ourId `M.delete` m)))
         MessageEndPointClose -> do
           rep <- createOrGetRemoteEndPoint mstate ourEp theirAddress
           remoteEndPointClose rep
@@ -472,38 +482,10 @@ remoteEndPointOpenConnection x@(RemoteEndPoint addr _ state) rel = join . liftIO
              )
     RemoteEndPointPending -> return (RemoteEndPointPending, remoteEndPointOpenConnection x rel)
 
-
-{-
-  case cid `M.lookup` connections of
-    Nothing -> return connections
-        Just cn -> atomically $ writeTMChan ch $ ConnectionClosed idx
-                   -- XXX: notify RemoteEndPoint
-                   return (Counter n (M.delete idx m), conn)
--}                   
-
 -- Use locks: TransportConnection
 remoteEndPointCloseIncommingConnection :: MVar EndPointThreadState
                          -> ConnectionId -> ByteString -> ZMQ.ZMQ z (Maybe ZMQConnection)
 remoteEndPointCloseIncommingConnection v idx ident = undefined
-{-        
-    modifyMVar (_transportConnections v) $ \i@(Counter n m) -> do
-      case idx `M.lookup` m of
-        Nothing -> return (i, Nothing)
-        Just cn -> deRefWeak cn >>= \case
-            Just conn@(ZMQConnection _ lep _ _) ->
-              withMVar (_localEndPointState lep) $ \case
-                LocalEndPointValid (ValidLocalEndPointState ch _ _) -> do
-                  atomically $ writeTMChan ch $ ConnectionClosed idx
-                  -- XXX: notify socket maybe we want to close it
-                  return (Counter n (M.delete idx m), Just conn)
-                _ -> return (i, Nothing)
-            Nothing -> do
-              return (i, Nothing) -- XXX: notify
--}              
-
-remoteEndPointRegisterConnection :: RemoteEndPoint -> ConnectionId -> ConnectionId -> ZMQ.ZMQ z a
-remoteEndPointRegisterConnection = undefined
-
 
 remoteEndPointClose :: RemoteEndPoint -> ZMQ.ZMQ z a
 remoteEndPointClose = undefined
