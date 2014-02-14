@@ -32,6 +32,7 @@ import Control.Concurrent.STM.TMChan
 import Control.Concurrent.Chan
 import Data.Word
 import Data.ByteString
+import Data.IORef
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict  as M
 
@@ -120,7 +121,7 @@ data RemoteEndPoint = RemoteEndPoint
 data RemoteEndPointState
       = RemoteEndPointValid ValidRemoteEndPoint
       | RemoteEndPointClosed
-      | RemoteEndPointPending
+      | RemoteEndPointPending (IORef [ValidRemoteEndPoint -> IO ()])
 
 data ValidRemoteEndPoint = ValidRemoteEndPoint
       { _remoteEndPointChan :: !(Chan [ByteString])
