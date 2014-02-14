@@ -29,8 +29,8 @@ library
                       exceptions >= 0.3,
                       void >= 0.6,
                       random >= 1.0
-  exposed-modules:    Network.Transport.ZeroMQ
-  other-modules:      Network.Transport.ZeroMQ.Types
+  exposed-modules:    Network.Transport.ZMQ
+  other-modules:      Network.Transport.ZMQ.Types
                       System.ZMQ4.Utils
   hs-source-dirs:     src
   ghc-options:        -Wall

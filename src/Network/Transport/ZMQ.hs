@@ -1,5 +1,5 @@
 {-# LANGUAGE RecursiveDo #-}
-module Network.Transport.ZeroMQ
+module Network.Transport.ZMQ
   ( -- * Main API
     createTransport
   , ZMQParameters(..)
@@ -49,7 +49,7 @@ import           GHC.Generics
 import           System.Mem.Weak
 
 import Network.Transport
-import Network.Transport.ZeroMQ.Types
+import Network.Transport.ZMQ.Types
 import qualified System.ZMQ4.Monadic as ZMQ
 import qualified System.ZMQ4.Utils   as ZMQ
 

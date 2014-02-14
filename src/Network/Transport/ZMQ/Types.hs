@@ -1,5 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
-module Network.Transport.ZeroMQ.Types
+module Network.Transport.ZMQ.Types
     ( ZMQParameters(..)
     , ZMQAuthType(..)
     , defaultZMQParameters

@@ -4,7 +4,7 @@ module Main where
 import Control.Applicative ((<$>))
 
 import Network.Transport
-import Network.Transport.ZeroMQ
+import Network.Transport.ZMQ
 import Network.Transport.Tests
 import Network.Transport.Tests.Auxiliary (runTests)
 
