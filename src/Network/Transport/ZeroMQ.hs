@@ -55,14 +55,6 @@ import qualified System.ZMQ4.Utils   as ZMQ
 
 import Text.Printf
 
---------------------------------------------------------------------------------
--- Missing instances                                                          --
---------------------------------------------------------------------------------
-deriving instance Generic Reliability
-deriving instance Typeable Reliability
-instance Binary Reliability
-
-
 -- XXX: we may want to introduce a new level of indirection: socket -> endpoint
 -- XXX: when incrementing endpoint we need to check that we have no node
 -- XXX: do we want to keep secret number to protect connection from beign
