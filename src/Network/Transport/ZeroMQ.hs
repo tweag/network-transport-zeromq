@@ -29,7 +29,7 @@ import           Control.Monad
       , forM_
       )
 import           Control.Monad.Catch
-      ( bracket 
+      ( bracket
       , finally
       , onException
       , try
@@ -48,7 +48,7 @@ import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import           Data.Typeable
 import           Data.Void
-import           GHC.Generics 
+import           GHC.Generics
 import           System.Mem.Weak
 
 import Network.Transport
@@ -57,9 +57,10 @@ import qualified System.ZMQ4.Monadic as ZMQ
 import qualified System.ZMQ4.Utils   as ZMQ
 
 import Text.Printf
--- ---------------------------------------------------------------------------
--- Missing instances
--- ---------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+-- Missing instances                                                          --
+--------------------------------------------------------------------------------
 deriving instance Generic Reliability
 deriving instance Typeable Reliability
 instance Binary Reliability
@@ -70,9 +71,9 @@ instance Binary Reliability
 -- XXX: do we want to keep secret number to protect connection from beign
 --      hijecked
 
--- =========================================================================== 
--- =    Internal datatypes                                                   =
--- ===========================================================================
+--------------------------------------------------------------------------------
+--- Internal datatypes                                                        --
+--------------------------------------------------------------------------------
 
 -- In zeromq backend we are using next address scheme:
 --
@@ -82,7 +83,7 @@ instance Binary Reliability
 --  |                               port pair per distributed process
 --  |                               instance
 --  +------------------------------ reserved for future use, depending on
---                                  the socket type, currently 
+--                                  the socket type, currently
 --
 -- Reliable connections:
 --
@@ -98,7 +99,7 @@ instance Binary Reliability
 --   main-thread - polls on incomming messages from ZeroMQ
 --   queue       - polls on incomming messages from distributed-process
 --
--- 
+--
 --
 -- Connections.
 --    ZeroMQ automatically handles connection liveness. This breaks some assumptions
@@ -108,27 +109,27 @@ instance Binary Reliability
 --
 --   Init    -- connection is creating
 --   Valid   -- connection is created and validated
---   Closed  -- connection is closed 
+--   Closed  -- connection is closed
 --
 -- To create a global connection between hosts we need to perform:
 --
---    1. Local side:  calls ZMQ.connect 
+--    1. Local side:  calls ZMQ.connect
 --    2. Remote side: handles ZMQ.Accepted event with address of the local node,
---                    and replies back with message "CONNECT hostid", 
+--                    and replies back with message "CONNECT hostid",
 --
 -- From this moment both hosts may use this connection.
 --
 -- *NOTE:* current implementation do not try to create doubledirected connection instread
---         it creates 2 unidirected connection from each side, this will simplify first 
+--         it creates 2 unidirected connection from each side, this will simplify first
 --         implementation version, but may be changed in the future.
---    
+--
 -- To create new lightweigh connection:
 --
 --    1. Local side: sends control message MessageInitConnection Reliability EndPoint Id
 --    2. Remote side: registers incomming connection and replies with new connection Id
 --        MessageInitConnectionOK Word64
 --    3. Local side: receives control message
---                     
+--
 -- *NOTE:* Current implementation uses unpinned types where it's possible to prevent
 --    memory fragmentation. It was not measured if it have a good impact on the performance.
 --
@@ -136,7 +137,7 @@ instance Binary Reliability
 --
 --   host-identifier:MessageType:Payload
 --      |                |        |
---      |                |        +----------- [[ByteString]] 
+--      |                |        +----------- [[ByteString]]
 --      |                +-------------------- ZeroMQControl Message
 --      +------------------------------------- Unique host-id (basically host url)
 
@@ -162,7 +163,7 @@ data ValidTransportState = ValidTransportState
       }
 
 -- | Messages
-data ZMQMessage 
+data ZMQMessage
       = MessageConnect -- ^ Connection greeting
       | MessageConnectOk !ByteString
       | MessageInitConnection !ConnectionId !Reliability
@@ -186,7 +187,7 @@ createTransport params host = do
     chan   <- newChan
     let vstate = ValidTransportState chan M.empty
     mstate <- newMVar $ TransportValid vstate
-    let transport = ZeroMQTransport addr mstate 
+    let transport = ZeroMQTransport addr mstate
 
     try $ do
       closed <- newEmptyMVar
@@ -197,20 +198,20 @@ createTransport params host = do
           , closeTransport = do
               writeChan chan TransportClose
               void $ readMVar closed
-          } 
+          }
   where
     addr = B.concat ["tcp://",host]
     mainloop mstate chan = liftIO (readChan chan) >>= go
-      where 
+      where
         go (TransportEndPointCreate reply) = do
             liftIO $ print "[transport] endpoint create"
             eEndPoint <- endPointCreate params (B8.unpack addr)
             liftIO $ putMVar reply =<< case eEndPoint of
               Right (port,ep) -> liftIO $ modifyMVar mstate $ \case
-                TransportValid i -> return 
+                TransportValid i -> return
                   ( TransportValid i{_transportEndPoints = M.insert port ep (_transportEndPoints i)}
                   , Right ep)
-                TransportClosed -> return 
+                TransportClosed -> return
                   ( TransportClosed
                   , Left $ TransportError NewEndPointFailed "Transport is closed.")
               Left e -> return $ Left e
@@ -224,7 +225,7 @@ createTransport params host = do
                     old <- modifyMVar (_localEndPointState lep) (\x -> return (LocalEndPointClosed, x))
                     case old of
                       LocalEndPointValid (ValidLocalEndPointState _ _ a) -> A.cancel a
-                      _ -> return () 
+                      _ -> return ()
                     return $ TransportValid $ ValidTransportState c (M.delete idx m)
               TransportClosed -> return TransportClosed
             mainloop mstate chan
@@ -236,9 +237,9 @@ createTransport params host = do
             old <- modifyMVar (_localEndPointState lep) (\x -> return (LocalEndPointClosed, x))
             case old of
               LocalEndPointValid (ValidLocalEndPointState _ _ a) -> A.cancel a
-              _ -> return () 
+              _ -> return ()
           return $ TransportClosed
-        TransportClosed -> return $ TransportClosed 
+        TransportClosed -> return $ TransportClosed
       liftIO $ putMVar closed ()
 
 apiNewEndPoint :: ZeroMQTransport -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
@@ -247,7 +248,7 @@ apiNewEndPoint transport = join $ withMVar (_transportState transport) inner
     inner TransportClosed = return $
         return $ Left $ TransportError NewEndPointFailed "Transport is closed."
     inner (TransportValid (ValidTransportState ch _)) = do
-        reply <- newEmptyMVar 
+        reply <- newEmptyMVar
         writeChan ch (TransportEndPointCreate reply)
         return $ do
           elep <- takeMVar reply
@@ -255,7 +256,7 @@ apiNewEndPoint transport = join $ withMVar (_transportState transport) inner
             Right ep ->
               withMVar (_localEndPointState ep) $ \case
                 LocalEndPointValid (ValidLocalEndPointState chIn chOut _) ->
-                  return $ Right 
+                  return $ Right
                          $ EndPoint
                     { receive = do
                         print "[endpoint] receive"
@@ -272,7 +273,7 @@ apiNewEndPoint transport = join $ withMVar (_transportState transport) inner
                         atomically $ closeTMChan chOut
                     , newMulticastGroup     = return . Left $
                         TransportError NewMulticastGroupUnsupported "Multicast not supported"
-                    , resolveMulticastGroup = return . return . Left $ 
+                    , resolveMulticastGroup = return . return . Left $
                         TransportError ResolveMulticastGroupUnsupported "Multicast not supported"
                     }
                 _ -> return $ Left $ TransportError NewEndPointFailed "Endpoint is closed."
@@ -322,17 +323,17 @@ endPointCreate params address = do
   where
     receiver pull ourEp mstate chan = forever $ do
       liftIO $ printf "[%s] wait\n" address
-      (identity:cmd:msgs) <- ZMQ.receiveMulti pull 
+      (identity:cmd:msgs) <- ZMQ.receiveMulti pull
       liftIO $ printf "[%s] ..wait\n" address
       let theirAddress  = EndPointAddress identity
       case decode' cmd of
-        MessageData idx -> join $ liftIO $ 
+        MessageData idx -> join $ liftIO $
           withMVar mstate $ \(EndPointThreadState (Counter _ c) _) ->
             case idx `M.lookup` c of
               Just _  -> do
                 atomically $ writeTMChan chan (Received idx msgs)
                 return $ return ()
-              Nothing -> return $ markRemoteHostFailed mstate theirAddress 
+              Nothing -> return $ markRemoteHostFailed mstate theirAddress
         MessageConnect -> do
           liftIO $ printf "[%s] message connect from %s\n"
                           (B8.unpack $ endPointAddressToByteString ourEp)
@@ -346,7 +347,7 @@ endPointCreate params address = do
             case theirAddress `M.lookup` r of
               Nothing  -> return (c, markRemoteHostFailed mstate theirAddress)
               Just rep -> withMVar (remoteEndPointState rep) $ \case
-                RemoteEndPointClosed -> undefined 
+                RemoteEndPointClosed -> undefined
                 RemoteEndPointValid (ValidRemoteEndPoint ch _) -> do                                  -- XXX: count incomming
                   writeChan ch [encode' $ MessageInitConnectionOk theirId (succ i)]
                   conn <- ZMQConnection <$> pure rep
@@ -391,15 +392,15 @@ endPointCreate params address = do
           remoteEndPointClose rep
     go pull ourAddress mstate chIn = liftIO (readChan chIn) >>= \case
       LocalEndPointConnectionOpen ourEp theirAddress rel reply -> do
-        liftIO $ printf "[%s][go] connection open to %s\n" 
+        liftIO $ printf "[%s][go] connection open to %s\n"
                         (B8.unpack $ endPointAddressToByteString ourAddress)
                         (B8.unpack $ endPointAddressToByteString theirAddress)
         host <- createOrGetRemoteEndPoint mstate ourAddress theirAddress
         econn <- remoteEndPointOpenConnection host rel
-        liftIO . putMVar reply $ 
+        liftIO . putMVar reply $
             case econn of
               Left e  -> Left e
-              Right c -> Right $ Connection 
+              Right c -> Right $ Connection
                   { send  = apiSend c
                   , close = apiClose c
                   }
@@ -409,7 +410,7 @@ endPointCreate params address = do
         liftIO $ case oldC of
           ZMQConnectionClosed    -> return ()
           ZMQConnectionInit      -> undefined
-          ZMQConnectionValid (ValidZMQConnection idx) -> 
+          ZMQConnectionValid (ValidZMQConnection idx) ->
             withMVar (remoteEndPointState . connectionRemoteEndPoint $ conn) $ \case
               RemoteEndPointClosed  -> return ()  -- XXX: violation
               RemoteEndPointPending -> return ()  -- XXX: ???
@@ -427,7 +428,7 @@ endPointCreate params address = do
       case authorizationType params of
           ZeroMQNoAuth -> return ()
           ZeroMQAuthPlain p u -> do
-              ZMQ.setPlainServer True pull 
+              ZMQ.setPlainServer True pull
               ZMQ.setPlainPassword (ZMQ.restrict p) pull
               ZMQ.setPlainUserName (ZMQ.restrict u) pull
       ZMQ.setSendHighWM (ZMQ.restrict (highWaterMark params)) pull
@@ -446,7 +447,7 @@ apiSend c@(ZMQConnection e _ s r) b = join $ withMVar (remoteEndPointState e) $ 
   RemoteEndPointValid  (ValidRemoteEndPoint ch _) -> withMVar s $ \case
     ZMQConnectionInit   -> return $ yield >> apiSend c b
     ZMQConnectionClosed -> return $ return $ Left $ TransportError SendClosed "Connection is closed"
-    ZMQConnectionValid  (ValidZMQConnection idx) -> do 
+    ZMQConnectionValid  (ValidZMQConnection idx) -> do
       writeChan ch $ (encode' $ MessageData idx):b
       return $ return $ Right ()
 
@@ -517,7 +518,7 @@ remoteEndPointOpenConnection x@(RemoteEndPoint addr _ state) rel = join . liftIO
     RemoteEndPointClosed -> do
       return (RemoteEndPointClosed, return $ Left $ TransportError ConnectFailed "Transport is closed.")
     RemoteEndPointValid (ValidRemoteEndPoint c (Counter i m)) -> do
-      conn <- ZMQConnection <$> pure x 
+      conn <- ZMQConnection <$> pure x
                             <*> pure rel
                             <*> newMVar ZMQConnectionInit
                             <*> newEmptyMVar
@@ -542,9 +543,10 @@ decode' :: Binary a => ByteString -> a
 decode' s = decode . BL.fromChunks $ [s]
 
 {-
----------------------------------------------------------------------------------
--- Remote host
----------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Remote host                                                                --
+--------------------------------------------------------------------------------
+--
 -- Remote host is represented by a process in ZMQ context that keep send
 -- socket and RemoteHost enty in Transport hierarchy, the main reason for
 -- this is that Rank2Types will not allow socket to escape ZMQ context
@@ -557,11 +559,11 @@ registerRemoteHost v uri = do
   takeMVar x
 
 createOrGetHostById :: ValidTransportState -> ByteString -> IO RemoteHost
-createOrGetHostById vstate uri = 
+createOrGetHostById vstate uri =
     modifyMVar (_remoteHosts vstate) $ \m -> do
       case uri `M.lookup` m of
         Nothing -> do
-          x <- registerRemoteHost vstate uri 
+          x <- registerRemoteHost vstate uri
           return (M.insert uri x m, x)
         Just x -> return (m, x)
 -}
@@ -590,10 +592,10 @@ remoteHostCloseConnection host (ZMQConnection rep _ _ _) cid = do
 
 -- Use lock pending
 -- RequireLock: TransportStat
-remoteHostOpenConnection :: ValidTransportState 
+remoteHostOpenConnection :: ValidTransportState
                          -> RemoteHost
                          -> LocalEndPoint
-                         -> RemoteEndPoint 
+                         -> RemoteEndPoint
                          -> Reliability
                          -> IO (Either (TransportError ConnectErrorCode) (ConnectionId, ZMQConnection))
 remoteHostOpenConnection v host ourEp theirEp rel = do
