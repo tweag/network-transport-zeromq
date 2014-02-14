@@ -75,37 +75,35 @@ instance Binary Reliability
 --- Internal datatypes                                                        --
 --------------------------------------------------------------------------------
 
--- In zeromq backend we are using next address scheme:
+-- In the zeromq backend we are using following address scheme:
 --
 -- scheme://host:port/EndPointId
 --  |       |     |
 --  |       +-----+---------------- can be configured by user, one host,
 --  |                               port pair per distributed process
 --  |                               instance
---  +------------------------------ reserved for future use, depending on
---                                  the socket type, currently
+--  +------------------------------ The transport used by 0MQ.
 --
 -- Reliable connections:
 --
--- As all communication with ZeroMQ should be provided in special threads that
--- were started under runZMQ or ZMQ.async, we are using communication channel
--- to send messages to that threads, this will have a little overhead over direct
--- usage of zmq, if we'd carry zmq context with send.
+-- As all communication with 0MQ should be provided in special threads that were
+-- started under runZMQ or ZMQ.async, we are using communication channel to send
+-- messages to those threads. This adds a little overhead over direct usage of
+-- zmq, if we'd carry zmq context with send.
 --
 -- XXX: really it's possible to do, but this will require changes in zeromq4-haskell API
 --
 -- Main-thread contains 3 subthreads:
 --   monitor     - monitors incomming and disconnected connections
---   main-thread - polls on incomming messages from ZeroMQ
+--   main-thread - polls on incomming messages from 0MQ
 --   queue       - polls on incomming messages from distributed-process
 --
---
---
 -- Connections.
---    ZeroMQ automatically handles connection liveness. This breaks some assumptions
--- about connectivity and leads to the problems with connection handling.
+--    0MQ automatically handles connection liveness. This breaks some
+--    assumptions about connectivity and leads to problems with connection
+--    handling.
 --
--- Heaviweight connection states:
+-- Heavyweight connection states:
 --
 --   Init    -- connection is creating
 --   Valid   -- connection is created and validated
@@ -119,26 +117,30 @@ instance Binary Reliability
 --
 -- From this moment both hosts may use this connection.
 --
--- *NOTE:* current implementation do not try to create doubledirected connection instread
---         it creates 2 unidirected connection from each side, this will simplify first
---         implementation version, but may be changed in the future.
+-- *NOTE:* current implementation do not try to create bidirectional connection.
+--     Instead, it creates 2 unidirectional connection from each side. This will
+--     simplify first implementation version, but may change in the future.
 --
 -- To create new lightweigh connection:
 --
---    1. Local side: sends control message MessageInitConnection Reliability EndPoint Id
---    2. Remote side: registers incomming connection and replies with new connection Id
---        MessageInitConnectionOK Word64
+--    1. Local side: sends control message MessageInitConnection Reliability
+--    EndPoint Id
+--
+--    2. Remote side: registers incomming connection and replies with new
+--    connection Id MessageInitConnectionOK Word64
+--
 --    3. Local side: receives control message
 --
--- *NOTE:* Current implementation uses unpinned types where it's possible to prevent
---    memory fragmentation. It was not measured if it have a good impact on the performance.
+-- *NOTE:* Current implementation uses unpinned types where it's possible to
+--     prevent memory fragmentation. It was not measured if it have a good
+--     impact on performance.
 --
 -- Structure of message:
 --
 --   host-identifier:MessageType:Payload
 --      |                |        |
 --      |                |        +----------- [[ByteString]]
---      |                +-------------------- ZeroMQControl Message
+--      |                +-------------------- ZMQControl Message
 --      +------------------------------------- Unique host-id (basically host url)
 
 type TransportAddress = ByteString
