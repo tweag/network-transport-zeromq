@@ -20,13 +20,13 @@ testTransport' newTransport = do
     , ("Connections",           testConnections transport numPings)
     , ("CloseOneConnection",    testCloseOneConnection transport numPings)
     , ("CloseOneDirection",     testCloseOneDirection transport numPings)
---    , ("CloseReopen",           testCloseReopen transport numPings)
+    , ("CloseReopen",           testCloseReopen transport numPings)
 --    , ("ParallelConnects",      testParallelConnects transport numPings)
 --    , ("SendAfterClose",        testSendAfterClose transport 100)
---  , ("Crossing",              testCrossing transport 10)
+    , ("Crossing",              testCrossing transport 10)
 --    , ("CloseTwice",            testCloseTwice transport 100)
---    , ("ConnectToSelf",         testConnectToSelf transport numPings)
---    , ("ConnectToSelfTwice",    testConnectToSelfTwice transport numPings)
+    , ("ConnectToSelf",         testConnectToSelf transport numPings)
+    , ("ConnectToSelfTwice",    testConnectToSelfTwice transport numPings)
 --    , ("CloseSelf",             testCloseSelf newTransport)
 --    , ("CloseEndPoint",         testCloseEndPoint transport numPings)
 --    , ("CloseTransport",        testCloseTransport newTransport)
@@ -37,3 +37,4 @@ testTransport' newTransport = do
     ]
   where
     numPings = 10000 :: Int
+
