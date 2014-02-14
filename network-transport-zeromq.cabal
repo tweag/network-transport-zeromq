@@ -15,7 +15,7 @@ Source-repository head
   Location: https://github.com/tweag/network-transport-zeromq
 
 library
-  build-depends:      base >=4.6 && < 4.7,
+  build-depends:      base >=4.6 && < 4.8,
                       binary >= 0.6,
                       network-transport >= 0.3,
                       zeromq4-haskell >= 0.2,
