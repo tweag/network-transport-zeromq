@@ -1,8 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
-module Network.Transport.ZeroMQ.Types 
-    ( ZeroMQParameters(..)
-    , ZeroMQAuthType(..)
-    , defaultZeroMQParameters 
+module Network.Transport.ZeroMQ.Types
+    ( ZMQParameters(..)
+    , ZMQAuthType(..)
+    , defaultZMQParameters
       -- * Internal types
       -- ** RemoteEndPoint
     , RemoteEndPoint(..)
@@ -37,42 +37,42 @@ import qualified Data.Map.Strict  as M
 
 import Network.Transport
 -- | Parameters for ZeroMQ connection
-data ZeroMQParameters = ZeroMQParameters
+data ZMQParameters = ZMQParameters
       { highWaterMark :: Word64 -- uint64_t
       , lingerPeriod  :: Int    -- int
-      , authorizationType :: ZeroMQAuthType
+      , authorizationType :: ZMQAuthType
       , minPort       :: Int
       , maxPort       :: Int
       , maxTries      :: Int
       }
 -- High Watermark
 
-defaultZeroMQParameters :: ZeroMQParameters
-defaultZeroMQParameters = ZeroMQParameters
+defaultZMQParameters :: ZMQParameters
+defaultZMQParameters = ZMQParameters
       { highWaterMark = 0
       , lingerPeriod  = 0
-      , authorizationType = ZeroMQNoAuth
+      , authorizationType = ZMQNoAuth
       , minPort       = 2000
       , maxPort       = 60000
       , maxTries      = 1000
       }
 
-data ZeroMQAuthType
-        = ZeroMQNoAuth
-        | ZeroMQAuthPlain
-            { zeroMQAuthPlainPassword :: ByteString
-            , zeroMQAutnPlainUserName :: ByteString
+data ZMQAuthType
+        = ZMQNoAuth
+        | ZMQAuthPlain
+            { zmqAuthPlainPassword :: ByteString
+            , zmqAutnPlainUserName :: ByteString
             }
 
 data LocalEndPoint = LocalEndPoint
       { _localEndPointAddress :: !EndPointAddress
-      , _localEndPointState :: MVar LocalEndPointState 
+      , _localEndPointState :: MVar LocalEndPointState
       }
 
 data LocalEndPointState
       = LocalEndPointValid !ValidLocalEndPointState
       | LocalEndPointClosed
-      | LocalEndPointFailed 
+      | LocalEndPointFailed
       | LocalEndPointInit
 
 data ValidLocalEndPointState = ValidLocalEndPointState
@@ -82,7 +82,7 @@ data ValidLocalEndPointState = ValidLocalEndPointState
       }
 
 {-
-data ValidLocalEndPointState = ValidLocalEndPointState 
+data ValidLocalEndPointState = ValidLocalEndPointState
       { _localEndPointChan :: !(TMChan Event)
       , _localEndPointRemoteEndPoint :: !(Map EndPointAddress RemoteEndPoint)
       -- ^ we need it to close connections when host is dead, really we
@@ -106,7 +106,7 @@ data ZMQConnectionState
 data ValidZMQConnection = ValidZMQConnection !Word64
 
 data LocalEndPointEvent
-        = LocalEndPointConnectionOpen LocalEndPoint EndPointAddress Reliability 
+        = LocalEndPointConnectionOpen LocalEndPoint EndPointAddress Reliability
             (MVar (Either (TransportError ConnectErrorCode) Connection))
         | LocalEndPointConnectionClose ZMQConnection
         | LocalEndPointClose
@@ -128,7 +128,7 @@ data ValidRemoteEndPoint = ValidRemoteEndPoint
       }
 -- Counter wrapper
 
-data Counter a b = Counter { counterNext   :: !a 
+data Counter a b = Counter { counterNext   :: !a
                            , counterValue :: !(Map a b)
                            }
 

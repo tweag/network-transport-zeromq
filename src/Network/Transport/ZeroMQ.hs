@@ -2,9 +2,9 @@
 module Network.Transport.ZeroMQ
   ( -- * Main API
     createTransport
-  , ZeroMQParameters(..)
-  , ZeroMQAuthType(..)
-  , defaultZeroMQParameters
+  , ZMQParameters(..)
+  , ZMQAuthType(..)
+  , defaultZMQParameters
   -- * Internals
   -- * Design
   ) where
@@ -135,7 +135,7 @@ import Text.Printf
 type TransportAddress = ByteString
 
 -- | Transport data type.
-data ZeroMQTransport = ZeroMQTransport
+data ZMQTransport = ZMQTransport
     { transportAddress :: !TransportAddress
     -- ^ Transport address (used as identifier).
     , _transportState  :: !(MVar TransportState)
@@ -171,14 +171,14 @@ data TransportEvents
         | TransportEndPointClose Int
         | TransportClose
 
-createTransport :: ZeroMQParameters -- ^ Transport features.
+createTransport :: ZMQParameters -- ^ Transport features.
                 -> ByteString       -- ^ Host.
                 -> IO (Either (TransportError Void) Transport)
 createTransport params host = do
     chan   <- newChan
     let vstate = ValidTransportState chan M.empty
     mstate <- newMVar $ TransportValid vstate
-    let transport = ZeroMQTransport addr mstate
+    let transport = ZMQTransport addr mstate
 
     try $ do
       closed <- newEmptyMVar
@@ -233,7 +233,7 @@ createTransport params host = do
         TransportClosed -> return $ TransportClosed
       liftIO $ putMVar closed ()
 
-apiNewEndPoint :: ZeroMQTransport -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
+apiNewEndPoint :: ZMQTransport -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
 apiNewEndPoint transport = join $ withMVar (_transportState transport) inner
   where
     inner TransportClosed = return $
@@ -289,7 +289,7 @@ data EndPointThreadState = EndPointThreadState
         , endPointRemotes     :: Map EndPointAddress RemoteEndPoint
         }
 
-endPointCreate :: ZeroMQParameters -> String -> ZMQ.ZMQ z (Either (TransportError NewEndPointErrorCode) (Int,LocalEndPoint))
+endPointCreate :: ZMQParameters -> String -> ZMQ.ZMQ z (Either (TransportError NewEndPointErrorCode) (Int,LocalEndPoint))
 endPointCreate params address = do
     em <- try $ accure
     case em of
@@ -417,8 +417,8 @@ endPointCreate params address = do
     accure = do
       pull <- ZMQ.socket ZMQ.Pull
       case authorizationType params of
-          ZeroMQNoAuth -> return ()
-          ZeroMQAuthPlain p u -> do
+          ZMQNoAuth -> return ()
+          ZMQAuthPlain p u -> do
               ZMQ.setPlainServer True pull
               ZMQ.setPlainPassword (ZMQ.restrict p) pull
               ZMQ.setPlainUserName (ZMQ.restrict u) pull
