@@ -440,8 +440,13 @@ endPointCreate params address = do
                       Just c  -> do
                         return (RemoteEndPointValid (ValidRemoteEndPoint ch (Counter x (ourId `Map.delete` m)))
                                , liftIO $ do 
-                                    modifyMVar_ (connectionState c) 
-                                                (const $ return $ ZMQConnectionValid (ValidZMQConnection theirId)) -- XXX: check old state
+                                    modifyMVar_ (connectionState c) $ \case
+                                      ZMQConnectionInit -> return $ ZMQConnectionValid (ValidZMQConnection theirId)
+                                      ZMQConnectionClosed -> do
+                                          -- decrement value
+                                          writeChan ch $ encode' (MessageCloseConnection theirId) :| []
+                                          return ZMQConnectionClosed
+                                      ZMQConnectionValid _ -> error "INVARIANT BREAK"
                                     void $ tryPutMVar (connectionReady c) ()
                                )
                 RemoteEndPointPending p -> return (RemoteEndPointPending p, undefined)
@@ -511,18 +516,23 @@ apiSend c@(ZMQConnection e _ s r) b = join $ withMVar (remoteEndPointState e) $ 
       writeChan ch $ encode' (MessageData idx):|b
       return $ return $ Right ()
 
--- TODO: move this functionality to the internal function
+-- 'apiClose' function is asynchronous, as connection may not exists by the
+-- time of the calling to this function. In this case function just marks
+-- connection as closed, so all subsequent calls from the user side will
+-- "think" that the connection is closed, and remote side will be contified
+-- only after connection will be up.
 apiClose :: ZMQConnection -> IO ()
-apiClose c@(ZMQConnection e _ s r) = withMVar (remoteEndPointState e) $ \case
-  RemoteEndPointClosed -> return ()
-  RemoteEndPointPending p -> return () -- XXX: problem
-  RemoteEndPointValid (ValidRemoteEndPoint ch _) -> modifyMVarL_ "apiClose>remoteEndPoint" s $ \case
-    ZMQConnectionInit -> return ZMQConnectionInit -- XXX: problem
-    ZMQConnectionClosed -> return ZMQConnectionClosed
-    ZMQConnectionValid (ValidZMQConnection idx) -> do
-        writeChan ch $ encode' (MessageCloseConnection idx) :| []
-        -- XXX: notify localEndPointProcess
-        return ZMQConnectionClosed
+apiClose c@(ZMQConnection e _ s r) = join $ modifyMVar s $ \case
+   ZMQConnectionInit   -> return (ZMQConnectionClosed, return ())
+   ZMQConnectionClosed -> return (ZMQConnectionClosed, return ())
+   ZMQConnectionValid (ValidZMQConnection idx) -> do
+     return (ZMQConnectionClosed, do
+       modifyMVar_ (remoteEndPointState e) $ \case
+         v@RemoteEndPointClosed -> return v
+         v@(RemoteEndPointValid w) -> notify idx w >> return v
+         v@(RemoteEndPointPending p) -> modifyIORef p (\xs -> notify idx : xs) >> return v)
+  where
+    notify idx (ValidRemoteEndPoint ch _) = writeChan ch $ encode' (MessageCloseConnection idx) :| []
 
 -- | Remote end point connection encapsulated into a thread
 createOrGetRemoteEndPoint :: MVar EndPointThreadState
