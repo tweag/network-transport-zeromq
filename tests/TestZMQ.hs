@@ -21,7 +21,7 @@ testTransport' newTransport = do
     , ("CloseOneConnection",    testCloseOneConnection transport numPings)
     , ("CloseOneDirection",     testCloseOneDirection transport numPings)
 --    , ("CloseReopen",           testCloseReopen transport numPings)
---    , ("ParallelConnects",      testParallelConnects transport numPings)
+    , ("ParallelConnects",      testParallelConnects transport 1000)
     , ("SendAfterClose",        testSendAfterClose transport 100)
     , ("Crossing",              testCrossing transport 10)
 --    , ("CloseTwice",            testCloseTwice transport 100)
@@ -37,4 +37,3 @@ testTransport' newTransport = do
     ]
   where
     numPings = 10000 :: Int
-

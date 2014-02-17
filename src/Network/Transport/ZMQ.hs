@@ -370,9 +370,7 @@ endPointCreate params address = do
           return $ Left $ TransportError NewEndPointInsufficientResources "no free sockets"
   where
     receiver pull ourEp mstate chan = forever $ do
-      liftIO $ printf "[%s] wait\n" address
       (cmd:msgs) <- ZMQ.receiveMulti pull
-      liftIO $ printf "[%s] ..wait\n" address
       case decode' cmd of
         MessageData idx -> liftIO $ atomically $ writeTMChan chan (Received idx msgs)
         MessageConnect theirAddress -> do
