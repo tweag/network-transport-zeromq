@@ -33,6 +33,7 @@ import Control.Concurrent.Chan
 import Data.Word
 import Data.ByteString
 import Data.IORef
+import Data.List.NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict  as M
 
@@ -124,7 +125,7 @@ data RemoteEndPointState
       | RemoteEndPointPending (IORef [ValidRemoteEndPoint -> IO ()])
 
 data ValidRemoteEndPoint = ValidRemoteEndPoint
-      { _remoteEndPointChan :: !(Chan [ByteString])
+      { _remoteEndPointChan :: !(Chan (NonEmpty ByteString))
       , _remoteEndPointPendingConnections :: !(Counter ConnectionId ZMQConnection)
       }
 -- Counter wrapper
