@@ -20,7 +20,7 @@ testTransport' newTransport = do
     , ("Connections",           testConnections transport numPings)
     , ("CloseOneConnection",    testCloseOneConnection transport numPings)
     , ("CloseOneDirection",     testCloseOneDirection transport numPings)
---    , ("CloseReopen",           testCloseReopen transport numPings)
+    , ("CloseReopen",           testCloseReopen transport numPings)
     , ("ParallelConnects",      testParallelConnects transport 1000)
     , ("SendAfterClose",        testSendAfterClose transport 100)
     , ("Crossing",              testCrossing transport 10)
