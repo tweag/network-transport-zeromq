@@ -15,6 +15,9 @@ testTransport' :: IO (Either String Transport) -> IO ()
 testTransport' newTransport = do
   Right transport <- newTransport
   runTests
+    [ ("PingPong",              testPingPong transport numPings) ]
+--    [ ("CloseSelf",             testCloseSelf newTransport) ]
+{-
     [ ("PingPong",              testPingPong transport numPings)
     , ("EndPoints",             testEndPoints transport numPings)
     , ("Connections",           testConnections transport numPings)
@@ -35,5 +38,6 @@ testTransport' newTransport = do
 --    , ("SendException",         testSendException newTransport)
 --    , ("Kill",                  testKill newTransport 1000)
     ]
+-}    
   where
     numPings = 10000 :: Int
