@@ -70,14 +70,13 @@ data ZMQAuthType
 
 data LocalEndPoint = LocalEndPoint
       { _localEndPointAddress :: !EndPointAddress
-      , _localEndPointState :: MVar LocalEndPointState
+      , _localEndPointState   :: MVar LocalEndPointState
+      ,  localEndPointPort    :: Int
       }
 
 data LocalEndPointState
       = LocalEndPointValid !ValidLocalEndPointState
       | LocalEndPointClosed
-      | LocalEndPointFailed
-      | LocalEndPointInit
 
 data ValidLocalEndPointState = ValidLocalEndPointState
       { _localEndPointOutputChan :: !(TMChan Event)
