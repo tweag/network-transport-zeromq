@@ -14,10 +14,8 @@ import Network.Transport.ZMQ.Types
 import           Control.Applicative
 import           Control.Concurrent
        ( yield
-       , threadDelay
        )
 import qualified Control.Concurrent.Async as Async
-import           Control.Concurrent.Chan
 import           Control.Concurrent.MVar
 import           Control.Concurrent.STM
 import           Control.Concurrent.STM.TMChan
@@ -25,25 +23,18 @@ import           Control.Monad
       ( void
       , forever
       , join
-      , when
       , forM_
       , foldM
       )
 import           Control.Monad.Catch
-      ( bracket 
-      , finally
-      , onException
+      (  finally
       , try
       , throwM
       , Exception
       , SomeException
-      , mask
       )
-import           Control.Monad.IO.Class
 
 import           Data.Binary
-import           Data.Binary.Put
-import           Data.Binary.Get
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
@@ -54,13 +45,11 @@ import           Data.IORef
       , readIORef
       )
 import           Data.List.NonEmpty
-import           Data.Maybe
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Typeable
 import           Data.Void
 import           GHC.Generics 
-import           System.Mem.Weak
 
 import Network.Transport
 import Network.Transport.ZMQ.Types
@@ -164,7 +153,6 @@ data ZMQTransport = ZMQTransport
 data TransportState
       = TransportValid !ValidTransportState         -- ^ Transport is in active state.
       | TransportClosed                             -- ^ Transport is closed.
-      | TransportPending                            -- ^ Transport initialization
 
 -- | Transport state.
 data ValidTransportState = ValidTransportState
@@ -239,12 +227,12 @@ data ZMQError = InvariantBreak
 
 instance Exception ZMQError
 
-createTransport :: ZMQParameters -- ^ Transport features.
+createTransport :: ZMQParameters    -- ^ Transport features.
                 -> ByteString       -- ^ Host.
                 -> IO (Either (TransportError Void) Transport)
 createTransport params host = do
     -- FIXME: catch exceptions return error
-    ctx    <- ZMQ.context
+    ctx       <- ZMQ.context
     transport <- ZMQTransport 
     	<$> pure addr 
         <*> newMVar (TransportValid $ ValidTransportState ctx Map.empty)
@@ -368,7 +356,7 @@ endPointCreate params ctx address = do
                                                   <*> pure rel
                                                   <*> newMVar (ZMQConnectionValid $ ValidZMQConnection i)
                                                   <*> newEmptyMVar
-                            register (succ i) rep (RemoteEndPointValid w)
+                            register (succ i) (RemoteEndPointValid w)
                             return ( LocalEndPointValid v{ endPointConnections = Counter (succ i) (Map.insert (succ i) conn m) }
                                    , return ())
                           RemoteEndPointPending w -> do
@@ -376,7 +364,7 @@ endPointCreate params ctx address = do
                                                   <*> pure rel
                                                   <*> newMVar (ZMQConnectionValid $ ValidZMQConnection i)
                                                   <*> newEmptyMVar
-                            modifyIORef w (\xs -> (register (succ i) rep) : xs)
+                            modifyIORef w (\xs -> (register (succ i))  : xs)
                             return ( LocalEndPointValid v{ endPointConnections = Counter (succ i) (Map.insert (succ i) conn m) }
                                    , return ()
                                    )
@@ -387,9 +375,9 @@ endPointCreate params ctx address = do
           printf "[%s] message init connection           [ok] \n"
                           (B8.unpack $ endPointAddressToByteString ourAddr)
           where
-            register i rep RemoteEndPointClosed = return RemoteEndPointClosed
-            register i rep RemoteEndPointPending{} = throwM InvariantBreak
-            register i rep v@(RemoteEndPointValid (ValidRemoteEndPoint sock _)) = do
+            register _ RemoteEndPointClosed = return RemoteEndPointClosed
+            register _ RemoteEndPointPending{} = throwM InvariantBreak
+            register i v@(RemoteEndPointValid (ValidRemoteEndPoint sock _)) = do
               ZMQ.send sock [] $ encode' (MessageInitConnectionOk ourAddr theirId i)
               atomically $ writeTMChan chan (ConnectionOpened i rel theirAddress)
               return v 
@@ -473,9 +461,9 @@ endPointCreate params ctx address = do
 
 
 apiSend :: ZMQConnection -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
-apiSend c@(ZMQConnection e _ s r) b = join $ withMVar (remoteEndPointState e) $ \case
-  RemoteEndPointClosed  -> return $ return $ Left $ TransportError SendClosed "Remote end point closed."
-  RemoteEndPointPending p -> return $ yield >> apiSend c b
+apiSend c@(ZMQConnection e _ s _) b = join $ withMVar (remoteEndPointState e) $ \case
+  RemoteEndPointClosed    -> return $ return $ Left $ TransportError SendClosed "Remote end point closed."
+  RemoteEndPointPending{} -> return $ yield >> apiSend c b
   RemoteEndPointValid  (ValidRemoteEndPoint sock _) -> withMVar s $ \case
     ZMQConnectionInit   -> return $ yield >> apiSend c b
     ZMQConnectionClosed -> return $ return $ Left $ TransportError SendClosed "Connection is closed"
@@ -496,11 +484,11 @@ apiClose c@(ZMQConnection e _ s r) = join $ modifyMVar s $ \case
      return (ZMQConnectionClosed, do
        modifyMVar_ (remoteEndPointState e) $ \case
          v@RemoteEndPointClosed -> return v
-         v@(RemoteEndPointValid w) -> notify idx v
+         v@RemoteEndPointValid{} -> notify idx v
          v@(RemoteEndPointPending p) -> modifyIORef p (\xs -> notify idx : xs) >> return v)
   where
-    notify idx RemoteEndPointClosed = return RemoteEndPointClosed
-    notify idx RemoteEndPointPending{} = throwM InvariantBreak
+    notify _ RemoteEndPointClosed    = return RemoteEndPointClosed
+    notify _ RemoteEndPointPending{} = throwM InvariantBreak
     notify idx w@(RemoteEndPointValid (ValidRemoteEndPoint sock _)) = do
       ZMQ.send sock [] $ encode' (MessageCloseConnection idx)
       return w
@@ -533,7 +521,7 @@ apiConnect ctx ourEp theirAddr reliability _hints = do
           RemoteEndPointClosed -> do
             return (RemoteEndPointClosed
                    , Left $ TransportError ConnectFailed "Transport is closed.")
-          RemoteEndPointValid (ValidRemoteEndPoint sock (Counter i m)) -> do
+          RemoteEndPointValid ValidRemoteEndPoint{} -> do
             s' <- go conn w
             return (s', Right apiConn)
           RemoteEndPointPending z -> do
@@ -542,8 +530,8 @@ apiConnect ctx ourEp theirAddr reliability _hints = do
   where
     ourAddr = _localEndPointAddress ourEp
     saddr = B8.unpack $ endPointAddressToByteString ourAddr
-    go conn RemoteEndPointClosed    = return RemoteEndPointClosed
-    go conn RemoteEndPointPending{} = error "VIOLATION"
+    go _ RemoteEndPointClosed    = return RemoteEndPointClosed
+    go _ RemoteEndPointPending{} = throwM InvariantBreak
     go conn (RemoteEndPointValid (ValidRemoteEndPoint sock (Counter i m))) = do
         ZMQ.send sock [] $ encode' (MessageInitConnection ourAddr i' reliability)
         return $ RemoteEndPointValid (ValidRemoteEndPoint sock (Counter i' (Map.insert i' conn m)))
@@ -591,53 +579,24 @@ createOrGetRemoteEndPoint ctx ourEp theirAddr = join $ do
         RemoteEndPointValid _   -> throwM $ InvariantBreak
         RemoteEndPointClosed    -> throwM $ InvariantBreak
 
-
--- | XXX: This function is not asynchronous as possible
-remoteEndPointOpenConnection :: LocalEndPoint
-                             -> RemoteEndPoint
-                             -> Reliability
-                             -> IO (Either (TransportError ConnectErrorCode) ZMQConnection)
-remoteEndPointOpenConnection ep x@(RemoteEndPoint addr state) rel = join $ do
-  modifyMVar state $ \case
-    RemoteEndPointClosed -> do
-      return (RemoteEndPointClosed, return $ Left $ TransportError ConnectFailed "Transport is closed.")
-    RemoteEndPointValid (ValidRemoteEndPoint sock (Counter i m)) -> do
-      conn <- ZMQConnection <$> pure x
-                            <*> pure rel
-                            <*> newMVar ZMQConnectionInit
-                            <*> newEmptyMVar
-      let i' = succ i
-      return ( RemoteEndPointValid (ValidRemoteEndPoint sock (Counter i' (Map.insert i' conn m)))
-             , do ZMQ.send sock [] $ encode' (MessageInitConnection epa i' rel)
-                  return $ Right conn
-             )
-    RemoteEndPointPending z -> do
-      return (RemoteEndPointPending z, remoteEndPointOpenConnection ep x rel)
-  where
-    epa = _localEndPointAddress ep
-
 remoteEndPointClose :: LocalEndPoint -> RemoteEndPoint -> IO ()
 remoteEndPointClose ourEp rep = do
    old <- swapMVar (remoteEndPointState rep) RemoteEndPointClosed
    case old of
      RemoteEndPointClosed    -> return ()
-     RemoteEndPointPending p -> return ()
+     RemoteEndPointPending _ -> return ()
      RemoteEndPointValid  v  -> do
        ZMQ.disconnect (_remoteEndPointChan v) (B8.unpack . endPointAddressToByteString $ remoteEndPointAddress rep)
        ZMQ.close (_remoteEndPointChan v)
        modifyMVar_ (_localEndPointState ourEp) $ \case
          LocalEndPointClosed -> return LocalEndPointClosed
-	 LocalEndPointValid v -> do
+	 LocalEndPointValid w -> do
            -- TODO: notify about closed connections
            -- TODO: remove closed connections
-           return $ LocalEndPointValid v{endPointRemotes = Map.delete (remoteEndPointAddress rep) (endPointRemotes v)}	
+           return $ LocalEndPointValid w{endPointRemotes = Map.delete (remoteEndPointAddress rep) (endPointRemotes w)}	
          
 encode' :: Binary a => a -> ByteString
 encode' = B.concat . BL.toChunks . encode
 
 decode' :: Binary a => ByteString -> a
 decode' s = decode . BL.fromChunks $ [s]
-
-repeatWhile :: IO Bool -> IO ()
-repeatWhile f = f >>= flip when (repeatWhile f)
-
