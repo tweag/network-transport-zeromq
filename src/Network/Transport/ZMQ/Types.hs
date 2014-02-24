@@ -27,12 +27,14 @@ module Network.Transport.ZMQ.Types
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TMChan
-import Control.Concurrent.Chan
 import Data.Word
 import Data.ByteString
 import Data.IORef
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict  as M
+import           Data.Set 
+     ( Set
+     )
 import           System.ZMQ4
       ( Socket
       , Push
@@ -113,6 +115,7 @@ data RemoteEndPointState
 data ValidRemoteEndPoint = ValidRemoteEndPoint
       { _remoteEndPointChan :: Socket Push
       , _remoteEndPointPendingConnections :: !(Counter ConnectionId ZMQConnection)
+      , _remoteEndPointIncommingConnections :: Set ConnectionId
       }
 -- Counter wrapper
 
