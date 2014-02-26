@@ -21,20 +21,19 @@ testTransport' newTransport = do
     , ("CloseOneConnection",    testCloseOneConnection transport numPings)
     , ("CloseOneDirection",     testCloseOneDirection transport numPings)
     , ("CloseReopen",           testCloseReopen transport numPings)
-    , ("ParallelConnects",      testParallelConnects transport 1000)
+    , ("ParallelConnects",      testParallelConnects transport numPings)
     , ("SendAfterClose",        testSendAfterClose transport 100)
     , ("Crossing",              testCrossing transport 10)
     , ("CloseTwice",            testCloseTwice transport 100)
     , ("ConnectToSelf",         testConnectToSelf transport numPings)
     , ("ConnectToSelfTwice",    testConnectToSelfTwice transport numPings)
---    , ("CloseSelf",             testCloseSelf newTransport)
---    , ("CloseEndPoint",         testCloseEndPoint transport numPings)
---    , ("CloseTransport",        testCloseTransport newTransport)
---    , ("ConnectClosedEndPoint", testConnectClosedEndPoint transport)
---    , ("ExceptionOnReceive",    testExceptionOnReceive newTransport)
---    , ("SendException",         testSendException newTransport)
---    , ("Kill",                  testKill newTransport 1000)
+    , ("CloseSelf",             testCloseSelf newTransport)
+    , ("CloseEndPoint",         testCloseEndPoint transport numPings)
+    , ("CloseTransport",        testCloseTransport newTransport)
+    , ("ExceptionOnReceive",    testExceptionOnReceive newTransport)
+    , ("SendException",         testSendException newTransport)
+    , ("Kill",                  testKill newTransport 1000)
 --
     ]
   where
-    numPings = 10000 :: Int
+    numPings = 1000 :: Int

@@ -16,6 +16,8 @@ module Network.Transport.ZMQ.Types
     , ZMQConnection(..)
     , ZMQConnectionState(..)
     , ValidZMQConnection(..)
+      -- ** LinkState
+    , LinkState(..)
       -- * Internal data structures
     , Counter(..)
     , nextElement
@@ -63,6 +65,12 @@ defaultZMQParameters = ZMQParameters
       , maxTries      = 1000
       }
 
+data LinkState
+       = None
+       | Ok
+       | Reconnect !Int
+       | Failed
+
 data ZMQAuthType
         = ZMQNoAuth
         | ZMQAuthPlain
@@ -99,17 +107,19 @@ data ZMQConnectionState
       = ZMQConnectionInit
       | ZMQConnectionValid !ValidZMQConnection
       | ZMQConnectionClosed
+      | ZMQConnectionFailed
 
 data ValidZMQConnection = ValidZMQConnection !Word64
 
 data RemoteEndPoint = RemoteEndPoint
       { remoteEndPointAddress :: !EndPointAddress
-      , remoteEndPointState   :: !(MVar RemoteEndPointState)
+      , remoteEndPointState   :: !(MVar RemoteEndPointState) 
       }
 
 data RemoteEndPointState
       = RemoteEndPointValid ValidRemoteEndPoint
       | RemoteEndPointClosed
+      | RemoteEndPointFailed
       | RemoteEndPointPending (IORef [RemoteEndPointState -> IO RemoteEndPointState])
 
 data ValidRemoteEndPoint = ValidRemoteEndPoint
