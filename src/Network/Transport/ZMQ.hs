@@ -272,7 +272,7 @@ apiCloseEndPoint :: ZMQTransport
 apiCloseEndPoint transport lep = do
 --    printf "[%s][go] close endpoint\n"
 --           (B8.unpack $ endPointAddressToByteString $ _localEndPointAddress lep)
-    old <- swapMVar (_localEndPointState lep) LocalEndPointClosed
+    old <- readMVar (_localEndPointState lep)
     case old of
       LocalEndPointValid (ValidLocalEndPointState x _ _ threadId) -> do
          Async.cancel threadId
