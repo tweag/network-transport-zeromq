@@ -125,9 +125,9 @@ data RemoteEndPointState
 data ValidRemoteEndPoint = ValidRemoteEndPoint
       { _remoteEndPointChan :: Socket Push
       , _remoteEndPointPendingConnections :: !(Counter ConnectionId ZMQConnection)
-      , _remoteEndPointIncommingConnections :: Set ConnectionId
+      , _remoteEndPointIncommingConnections :: !(Set ConnectionId)
+      , _remoteEndPointOutgoingCount :: !Int
       }
--- Counter wrapper
 
 data Counter a b = Counter { counterNext   :: !a
                            , counterValue :: !(Map a b)
