@@ -231,7 +231,7 @@ apiTransportClose transport = do
     case old of
       TransportClosed -> return ()
       TransportValid (ValidTransportState ctx m) -> do
-        forM_ (Map.elems m) $ apiCloseEndPoint False transport
+        forM_ (Map.elems m) $ apiCloseEndPoint True transport
 	ZMQ.term ctx
 
 apiNewEndPoint :: ZMQParameters -> ZMQTransport -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
@@ -658,8 +658,9 @@ remoteEndPointClose silent eOurEp rep = do
                c -> return c
        when (i > 0) $
          case eOurEp of
-           Left (v, _) ->  atomically $ writeTMChan (_localEndPointOutputChan v)
-               $ ErrorEvent $ TransportError (EventConnectionLost (remoteEndPointAddress rep)) "disconnect event"
+--           This mean we called transport close
+--           Left (v, _) ->  atomically $ writeTMChan (_localEndPointOutputChan v)
+--               $ ErrorEvent $ TransportError (EventConnectionLost (remoteEndPointAddress rep)) "disconnect event"
            Right ourEp -> withMVar (_localEndPointState ourEp) $ \case
               LocalEndPointValid v ->  atomically $ writeTMChan (_localEndPointOutputChan v) 
                  $ ErrorEvent $ TransportError (EventConnectionLost (remoteEndPointAddress rep)) "disconnect event"
@@ -681,38 +682,11 @@ remoteEndPointClose silent eOurEp rep = do
                return $ LocalEndPointValid w{endPointRemotes = Map.delete (remoteEndPointAddress rep) (endPointRemotes w)}	
        ZMQ.close (_remoteEndPointChan v)
 
-
-{-
-connectionClose :: LocalEndPoint -> ZMQConnection -> IO ()
-connectionClose lep conn = do
-    old <- swapMVar (connectionState conn) ZMQConnectionClosed
-    case old of
-      ZMQConnectionInit -> return () -- throwM InvariantViolation
-      ZMQConnectionClosed -> return ()
-      ZMQConnectionValid (ValidZMQConnection idx) -> do
-        modifyMVar (remoteEndPointState $ connectionRemoteEndPoint conn) $ \case
-          RemoteEndPointValid v -> return $
-            RemoteEndPointValid v{remoteEndPointIncommingConnections = 
-              Set.delete idx (remoteEndPointIncommingConnections v)}
-          c -> return c
-        modifyMVar (_localEndPointState lep) $ \case
-          LocalEndPointValid v -> 
-            let (Counter i m) = endPointConnections v
-            in do
-               atomically $ writeTMChan (_localEndPointChannel $ localEndPoint conn)
-                                        (ConnectionClosed idx)
-               return $
-                  LocalEndPointValid v{ endPointConnections = Counter i (idx `Map.delete` m)}
-          c -> return c                
--}
-
 connectionCleanup :: RemoteEndPoint -> ConnectionId -> IO ()
 connectionCleanup rep cid = modifyMVar_ (remoteEndPointState rep) $ \case
    RemoteEndPointValid v -> return $
       RemoteEndPointValid v{_remoteEndPointIncommingConnections = Set.delete cid (_remoteEndPointIncommingConnections v)}
    c -> return c
-
-
          
 encode' :: Binary a => a -> ByteString
 encode' = B.concat . BL.toChunks . encode
