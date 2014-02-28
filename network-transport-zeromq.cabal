@@ -57,6 +57,7 @@ Test-Suite test-zeromq
 Test-Suite test-api
   type:               exitcode-stdio-1.0
   main-is:            TestAPI.hs
+  buildable:          False
   build-depends:      base >= 4.4 && < 5,
                       network-transport >= 0.2 && < 0.4,
                       network-transport-zeromq,
@@ -64,6 +65,7 @@ Test-Suite test-api
   ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
   hs-source-dirs:     tests
   default-language:   Haskell2010
+
 
 
 Test-Suite test-ch-core

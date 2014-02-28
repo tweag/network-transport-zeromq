@@ -96,7 +96,8 @@ data ValidLocalEndPointState = ValidLocalEndPointState
       }
 
 data ZMQConnection = ZMQConnection
-      { connectionRemoteEndPoint :: !RemoteEndPoint
+      { connectionLocalEndPoint  :: !LocalEndPoint
+      , connectionRemoteEndPoint :: !RemoteEndPoint
       , connectionReliability    :: !Reliability
 --      , connectionLocalEndPoint  :: !LocalEndPoint
       , connectionState :: !(MVar ZMQConnectionState)
