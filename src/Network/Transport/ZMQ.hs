@@ -173,6 +173,27 @@ data ValidTransportState = ValidTransportState
 -- RemoteEndPoint
 -- Connection
 
+-- Connection closing procedure.
+-- Once endpoint is gracefully closed by user or by transport close
+-- RemoteEndPoint goes into 'RemoteEndPointClosing' state and sends
+-- a message to remote endpoint if link is known as alive, in 
+-- RemoteEndPointClosing all messages are ignored and EndPointClosed
+-- is returned. Uppon a EndPointClose delivery endpoint replies with
+-- EndPointClose message, and starts cleanup procedure (marking link
+-- as not alive). When endpoint receives EndPointCloseOk message it
+-- moved RemoteEndPoint to close state and removes all data structures.
+-- Together with marking a endpoint as closed asynchronous timeout is
+-- set, and if EndPointCloseOk is not delivered withing that timeperiod
+-- EndPoint is closed.
+-- 
+-- endpoint-1                                 endpoint-2
+--  1. mark as closing
+--  [RemoteEndPoint:Closing] ----endPointClose->    [remoteEndPoint:Valid]
+--                                            2. mark as closed
+--                           <-endPointCloseOk-     [remoteEndPoint:Closed]
+--  2. mark as closed
+--  [RemoteEndPoint:Closed]                   4. cleanup remote end point
+
 
 
 
@@ -501,13 +522,12 @@ endPointCreate params ctx address = do
       port <- ZMQ.bindFromRangeRandom pull address (minPort params) (maxPort params) (maxTries params)
       return (port, pull)
 
-
 apiSend :: ZMQConnection -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
 apiSend c@(ZMQConnection l e _ s _) b = join $ withMVar s $ \case
     ZMQConnectionValid (ValidZMQConnection idx) -> do
       x <- trySome $ do
-             b' <- Prelude.mapM evaluate b
-             evaluate $ (encode' (MessageData idx) :| b')
+        b' <- Prelude.mapM evaluate b
+        evaluate $ (encode' (MessageData idx) :| b')
       return $ go x 
     ZMQConnectionClosed -> afterP $ Left $ TransportError SendClosed "Connection closed."
     ZMQConnectionFailed -> afterP $ Left $ TransportError SendFailed "Connection failed."

@@ -122,6 +122,7 @@ data RemoteEndPointState
       | RemoteEndPointClosed
       | RemoteEndPointFailed
       | RemoteEndPointPending (IORef [RemoteEndPointState -> IO RemoteEndPointState])
+      | RemoteEndPointClosing
 
 data ValidRemoteEndPoint = ValidRemoteEndPoint
       { _remoteEndPointChan :: Socket Push
