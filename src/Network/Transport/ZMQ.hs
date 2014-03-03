@@ -193,9 +193,11 @@ data ValidTransportState = ValidTransportState
 --                           <-endPointCloseOk-     [remoteEndPoint:Closed]
 --  2. mark as closed
 --  [RemoteEndPoint:Closed]                   4. cleanup remote end point
-
-
-
+--
+-- EndPoint can be closed in a two ways: normally and abnormally (in case
+-- of exception or invariant vionation on a remove side). If EndPoint is
+-- closed normally all opened connections will recevice ConnectionClosed 
+-- events, otherwise.
 
 -- | Messages
 data ZMQMessage
@@ -205,6 +207,7 @@ data ZMQMessage
       | MessageCloseConnection !ConnectionId
       | MessageData !ConnectionId
       | MessageEndPointClose !EndPointAddress !Bool
+      | MessageEndPointCloseOk !EndPointAddress
       deriving (Generic)
 
 {- 
@@ -474,28 +477,18 @@ endPointCreate params ctx address = do
         MessageEndPointClose theirAddress False -> getRemoteEndPoint ourEp theirAddress >>= \case
           Nothing  -> return ()
           Just rep -> do
-            modifyMVar_ (_localEndPointState ourEp) $ \case
-              LocalEndPointValid v -> do
-                atomically $ writeTMChan (_localEndPointOutputChan v) $
-                  ErrorEvent $ TransportError (EventConnectionLost (_localEndPointAddress ourEp)) "exception on remote side"
-                old <- swapMVar (remoteEndPointState rep) RemoteEndPointFailed
-                case old of
-                  RemoteEndPointValid w -> do
-                    let (Counter _ cn) = _remoteEndPointPendingConnections w
-                    traverse (\c -> void $ swapMVar (connectionState c) ZMQConnectionFailed) cn        
-                    cn' <- foldM 
-                          (\(Counter i' cn') idx -> case idx `Map.lookup` cn of
-                              Nothing -> return (Counter i' cn')
-                              Just c -> swapMVar (connectionState c) ZMQConnectionFailed >> return (Counter i' (Map.delete idx cn'))
-                          )
-                          (endPointConnections v) 
-                          (Set.toList (_remoteEndPointIncommingConnections w))
-                    ZMQ.close (_remoteEndPointChan w)
-                    return $ LocalEndPointValid v{ endPointConnections=cn'
-                                                 , endPointRemotes = Map.delete theirAddress (endPointRemotes v)}
-                  _ -> return $ LocalEndPointValid v
-              c -> return c
-             
+            mst <- cleanupRemoteEndPoint ourEp rep
+            case mst of
+              Nothing -> return ()
+              Just st -> do
+                onValidEndPoint ourEp $ \v -> atomically $ writeTMChan (_localEndPointOutputChan v) $
+                   ErrorEvent $ TransportError (EventConnectionLost (_localEndPointAddress ourEp)) "Exception on remote side"
+                closeRemoteEndPoint ourEp rep st
+        MessageEndPointCloseOk theirAddress -> getRemoteEndPoint ourEp theirAddress >>= \case
+          Nothing -> return ()
+          Just rep -> do
+            state <- swapMVar (remoteEndPointState rep) RemoteEndPointClosed
+            closeRemoteEndPoint ourEp rep state
       where
         ourAddr = _localEndPointAddress ourEp
     finalizeEndPoint ourEp port pull = do
@@ -508,7 +501,6 @@ endPointCreate params ctx address = do
           forM_ (Map.elems $ endPointRemotes v) $ (remoteEndPointClose False (Left (v, _localEndPointAddress ourEp)))
           ZMQ.unbind pull (address ++ ":" ++ show port)
           ZMQ.close pull
-
     accure = do
       pull <- ZMQ.socket ctx ZMQ.Pull
       case authorizationType params of
@@ -704,6 +696,45 @@ createOrGetRemoteEndPoint ctx ourEp theirAddr = join $ do
             RemoteEndPointClosed    -> return RemoteEndPointClosed
             RemoteEndPointFailed    -> return RemoteEndPointFailed
 
+-- | Close all endpoint connections, return previous state in case
+-- if it was alive, for further cleanup actions. 
+cleanupRemoteEndPoint :: LocalEndPoint -> RemoteEndPoint -> IO (Maybe RemoteEndPointState)
+cleanupRemoteEndPoint lep rep = modifyMVar (_localEndPointState lep) $ \case
+    LocalEndPointValid v -> do
+      oldState <- swapMVar (remoteEndPointState rep) newState
+      case oldState of
+        RemoteEndPointValid w -> do
+          let (Counter _ cn) = _remoteEndPointPendingConnections w
+          traverse (\c -> void $ swapMVar (connectionState c) ZMQConnectionFailed) cn
+          cn' <- foldM 
+               (\(Counter i' cn') idx -> case idx `Map.lookup` cn of
+                   Nothing -> return (Counter i' cn')  
+                   Just c  -> do
+                     swapMVar (connectionState c) ZMQConnectionFailed
+                     return $ Counter i' (Map.delete idx cn')
+               ) 
+               (endPointConnections v)
+               (Set.toList (_remoteEndPointIncommingConnections w))
+          return ( LocalEndPointValid v { endPointConnections=cn' }
+                 , Just oldState)
+    c -> return (c, Nothing)
+  where
+    newState = RemoteEndPointFailed
+
+-- | Close, all network connections.
+closeRemoteEndPoint :: LocalEndPoint -> RemoteEndPoint -> RemoteEndPointState -> IO ()
+closeRemoteEndPoint lep rep state = step1 >> step2 state
+  where
+   step1 = modifyMVar_ (_localEndPointState lep) $ \case
+     LocalEndPointValid v -> return $
+       LocalEndPointValid v{endPointRemotes=Map.delete (remoteEndPointAddress rep) (endPointRemotes v)}
+     c -> return c
+   step2 (RemoteEndPointValid v) = do
+--      ZMQ.disconnect (remoteEndPointChan v) (remoteEndPointAddress ?)
+      ZMQ.close (_remoteEndPointChan v)
+   step2 RemoteEndPointClosed = return ()
+   step2 _ = return ()
+
 
 remoteEndPointClose :: Bool -> (Either (ValidLocalEndPointState,EndPointAddress) LocalEndPoint) -> RemoteEndPoint -> IO ()
 remoteEndPointClose silent eOurEp rep = do
@@ -772,6 +803,12 @@ encode' = B.concat . BL.toChunks . encode
 
 decode' :: Binary a => ByteString -> a
 decode' s = decode . BL.fromChunks $ [s]
+
+
+onValidEndPoint :: LocalEndPoint -> (ValidLocalEndPointState -> IO ()) -> IO ()
+onValidEndPoint lep f = withMVar (_localEndPointState lep) $ \case
+   LocalEndPointValid v -> f v
+   _ -> return ()
 
 
 afterP :: a -> IO (IO a)
