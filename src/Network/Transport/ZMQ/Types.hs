@@ -8,6 +8,7 @@ module Network.Transport.ZMQ.Types
     , RemoteEndPoint(..)
     , RemoteEndPointState(..)
     , ValidRemoteEndPoint(..)
+    , ClosingRemoteEndPoint(..)
       -- ** LocalEndPoint
     , LocalEndPoint(..)
     , LocalEndPointState(..)
@@ -93,6 +94,7 @@ data ValidLocalEndPointState = ValidLocalEndPointState
       ,  endPointConnections     :: Counter ConnectionId ZMQConnection
       ,  endPointRemotes         :: Map EndPointAddress RemoteEndPoint
       , _localEndPointThread     :: Async ()
+      , _localEndPointOpened     :: (IORef Bool)
       }
 
 data ZMQConnection = ZMQConnection
@@ -122,7 +124,7 @@ data RemoteEndPointState
       | RemoteEndPointClosed
       | RemoteEndPointFailed
       | RemoteEndPointPending (IORef [RemoteEndPointState -> IO RemoteEndPointState])
-      | RemoteEndPointClosing
+      | RemoteEndPointClosing ClosingRemoteEndPoint
 
 data ValidRemoteEndPoint = ValidRemoteEndPoint
       { _remoteEndPointChan :: Socket Push
@@ -130,6 +132,11 @@ data ValidRemoteEndPoint = ValidRemoteEndPoint
       , _remoteEndPointIncommingConnections :: !(Set ConnectionId)
       , _remoteEndPointOutgoingCount :: !Int
       }
+
+data ClosingRemoteEndPoint = ClosingRemoteEndPoint
+     { _remoteEndPointClosingSocket :: Socket Push
+     , _remoteEndPointDone :: MVar ()
+     }
 
 data Counter a b = Counter { counterNext   :: !a
                            , counterValue :: !(Map a b)
