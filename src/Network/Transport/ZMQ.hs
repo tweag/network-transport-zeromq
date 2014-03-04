@@ -262,7 +262,7 @@ apiTransportClose transport = do
     case old of
       TransportClosed -> return ()
       TransportValid (ValidTransportState ctx m) -> do
-        forM_ (Map.elems m) $ apiCloseEndPoint True transport
+        forM_ (Map.elems m) $ apiCloseEndPoint transport
 	ZMQ.term ctx
 
 apiNewEndPoint :: ZMQParameters -> ZMQTransport -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
@@ -287,7 +287,7 @@ apiNewEndPoint params transport = do
                 Just x  -> return x
           , address = localEndPointAddress ep
           , connect = apiConnect ctx ep
-          , closeEndPoint = apiCloseEndPoint True transport ep
+          , closeEndPoint = apiCloseEndPoint transport ep
           , newMulticastGroup     = return . Left $
               TransportError NewMulticastGroupUnsupported "Multicast not supported"
           , resolveMulticastGroup = return . return . Left $
@@ -298,24 +298,21 @@ apiNewEndPoint params transport = do
     addr = transportAddress transport
 
 -- | Asynchronous operation, shutdown of the remote end point may take a while
-apiCloseEndPoint :: Bool
-                 -> ZMQTransport
+apiCloseEndPoint :: ZMQTransport
                  -> LocalEndPoint
 		 -> IO ()
-apiCloseEndPoint fast transport lep = do
+apiCloseEndPoint transport lep = do
 --    printf "[%s][go] close endpoint\n"
 --           (B8.unpack $ endPointAddressToByteString $ _localEndPointAddress lep)
     old <- readMVar (localEndPointState lep)
     case old of
       LocalEndPointValid (ValidLocalEndPoint x _ _ threadId _) -> do
-         let a = do Async.cancel threadId
-                    void $ Async.waitCatch threadId
-             b = atomically $ do
-                    writeTMChan x EndPointClosed
-                    closeTMChan x
-         if fast
-         then b >> a
-         else a >> b
+         -- close channel, no events will be received
+         atomically $ do
+           writeTMChan x EndPointClosed
+           closeTMChan x
+         Async.cancel threadId
+         void $ Async.waitCatch threadId         
       LocalEndPointClosed -> return ()
     modifyMVar_ (_transportState transport) $ \case
       TransportClosed  -> return TransportClosed 
@@ -333,12 +330,10 @@ endPointCreate params ctx address = do
     case em of
       Right (port,pull) -> do
           chOut <- newTMChanIO
-          let addr = EndPointAddress $ B8.pack (address ++ ":" ++ show port)
-          lep   <- LocalEndPoint <$> pure addr
+          lep   <- LocalEndPoint <$> pure (EndPointAddress $ B8.pack (address ++ ":" ++ show port))
                                  <*> newEmptyMVar
                                  <*> pure port
           opened <- newIORef True
---          printf "[end-point-create] addr: %s\n" (B8.unpack $ endPointAddressToByteString addr)
           thread <- mask $ \restore ->
              Async.async $ (restore (receiver pull lep chOut)) 
                            `finally` finalizeEndPoint lep port pull
@@ -649,7 +644,7 @@ apiConnect ctx ourEp theirAddr reliability _hints = do
           RemoteEndPointClosing x -> do
             return ( RemoteEndPointClosing x
                    , return $ Left $ TransportError ConnectFailed "RemoteEndPoint closed.")
-          RemoteEndPointValid ValidRemoteEndPoint{} -> do
+          RemoteEndPointValid _ -> do
             s' <- go conn w
             return (s', waitReady conn apiConn)
           RemoteEndPointPending z -> do
@@ -690,18 +685,22 @@ createOrGetRemoteEndPoint ctx ourEp theirAddr = join $ do
 --           saddr
 --           (B8.unpack $ endPointAddressToByteString theirAddr)
     modifyMVar (localEndPointState ourEp) $ \case
-      LocalEndPointValid v@(ValidLocalEndPoint _ _ m _ _) -> do
-        case theirAddr `Map.lookup` m of
-          Nothing -> do
---            printf "[%s] apiConnect: remoteEndPoint not found, creating %s\n"
---                   (B8.unpack $ endPointAddressToByteString $ _localEndPointAddress ourEp)
---                  (B8.unpack $ endPointAddressToByteString theirAddr)
-            push <- ZMQ.socket ctx ZMQ.Push
-            state <- newMVar . RemoteEndPointPending =<< newIORef []
-            let rep = RemoteEndPoint theirAddr state
-            return ( LocalEndPointValid v{ _localEndPointRemotes = Map.insert theirAddr rep m}
-                   , initialize push rep >> return (Right rep))
-          Just rep -> return (LocalEndPointValid v, return $ Right rep)
+      LocalEndPointValid v@(ValidLocalEndPoint _ _ m _ o) -> do
+        opened <- readIORef o
+        if opened
+        then do
+          case theirAddr `Map.lookup` m of
+            Nothing -> do
+--              printf "[%s] apiConnect: remoteEndPoint not found, creating %s\n"
+--                     (B8.unpack $ endPointAddressToByteString $ _localEndPointAddress ourEp)
+--                    (B8.unpack $ endPointAddressToByteString theirAddr)
+              push <- ZMQ.socket ctx ZMQ.Push
+              state <- newMVar . RemoteEndPointPending =<< newIORef []
+              let rep = RemoteEndPoint theirAddr state
+              return ( LocalEndPointValid v{ _localEndPointRemotes = Map.insert theirAddr rep m}
+                     , initialize push rep >> return (Right rep))
+            Just rep -> return (LocalEndPointValid v, return $ Right rep)
+        else return (LocalEndPointValid v, return $ Left $ IncorrectState "EndPointClosing")
       LocalEndPointClosed ->
         return  ( LocalEndPointClosed
                 , return $ Left $ IncorrectState "EndPoint is closed" 
