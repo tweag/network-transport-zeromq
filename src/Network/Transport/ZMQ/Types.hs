@@ -4,20 +4,22 @@ module Network.Transport.ZMQ.Types
     , ZMQAuthType(..)
     , defaultZMQParameters
       -- * Internal types
+    , ZMQTransport(..)
+    , TransportState(..)
+    , ValidTransportState(..)
       -- ** RemoteEndPoint
     , RemoteEndPoint(..)
     , RemoteEndPointState(..)
     , ValidRemoteEndPoint(..)
+    , ClosingRemoteEndPoint(..)
       -- ** LocalEndPoint
     , LocalEndPoint(..)
     , LocalEndPointState(..)
-    , ValidLocalEndPointState(..)
+    , ValidLocalEndPoint(..)
       -- ** ZeroMQ connection
     , ZMQConnection(..)
     , ZMQConnectionState(..)
     , ValidZMQConnection(..)
-      -- ** Events
-    , LocalEndPointEvent(..)
       -- * Internal data structures
     , Counter(..)
     , nextElement
@@ -29,14 +31,24 @@ module Network.Transport.ZMQ.Types
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TMChan
-import Control.Concurrent.Chan
 import Data.Word
 import Data.ByteString
 import Data.IORef
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict  as M
+import           Data.Set 
+     ( Set
+     )
+import           System.ZMQ4
+      ( Socket
+      , Push
+      )
 
 import Network.Transport
+
+import qualified System.ZMQ4 as ZMQ
+
+
 -- | Parameters for ZeroMQ connection
 data ZMQParameters = ZMQParameters
       { highWaterMark :: Word64 -- uint64_t
@@ -55,7 +67,7 @@ defaultZMQParameters = ZMQParameters
       , authorizationType = ZMQNoAuth
       , minPort       = 2000
       , maxPort       = 60000
-      , maxTries      = 1000
+      , maxTries      = 10000
       }
 
 data ZMQAuthType
@@ -65,69 +77,89 @@ data ZMQAuthType
             , zmqAutnPlainUserName :: ByteString
             }
 
+type TransportAddress = ByteString
+
+-- | Transport data type.
+data ZMQTransport = ZMQTransport
+    { transportAddress :: !TransportAddress
+    -- ^ Transport address (used as identifier).
+    , _transportState  :: !(MVar TransportState)
+    -- ^ Internal state.
+    }
+
+-- | Transport state.
+data TransportState
+      = TransportValid !ValidTransportState         -- ^ Transport is in active state.
+      | TransportClosed                             -- ^ Transport is closed.
+
+-- | Transport state.
+data ValidTransportState = ValidTransportState
+      { _transportContext   :: !ZMQ.Context
+      , _transportEndPoints :: !(Map Int LocalEndPoint)
+      }
+
 data LocalEndPoint = LocalEndPoint
-      { _localEndPointAddress :: !EndPointAddress
-      , _localEndPointState :: MVar LocalEndPointState
+      { localEndPointAddress :: !EndPointAddress
+      , localEndPointState   :: !(MVar LocalEndPointState)
+      , localEndPointPort    :: !(Int)
       }
 
 data LocalEndPointState
-      = LocalEndPointValid !ValidLocalEndPointState
+      = LocalEndPointValid !ValidLocalEndPoint
       | LocalEndPointClosed
-      | LocalEndPointFailed
-      | LocalEndPointInit
 
-data ValidLocalEndPointState = ValidLocalEndPointState
-      { _localEndPointInputChan :: !(Chan LocalEndPointEvent)
-      , _localEndPointOutputChan :: !(TMChan Event)
-      , _localEndPointThread :: Async ()
+data ValidLocalEndPoint = ValidLocalEndPoint
+      { _localEndPointChan        :: !(TMChan Event)
+        -- ^ channel for n-t - user communication
+      , _localEndPointConnections :: !(Counter ConnectionId ZMQConnection)
+        -- ^ list of incomming connections
+      , _localEndPointRemotes     :: !(Map EndPointAddress RemoteEndPoint)
+        -- ^ list of remote end points
+      , _localEndPointThread      :: !(Async ())
+        -- ^ thread id
+      , _localEndPointOpened      :: !(IORef Bool)
+        -- ^ is remote endpoint opened
       }
-
-{-
-data ValidLocalEndPointState = ValidLocalEndPointState
-      { _localEndPointChan :: !(TMChan Event)
-      , _localEndPointRemoteEndPoint :: !(Map EndPointAddress RemoteEndPoint)
-      -- ^ we need it to close connections when host is dead, really we
-      -- need to keep list of remote end points only
-      }
--}
 
 data ZMQConnection = ZMQConnection
-      { connectionRemoteEndPoint :: !RemoteEndPoint
+      { connectionLocalEndPoint  :: !LocalEndPoint
+      , connectionRemoteEndPoint :: !RemoteEndPoint
       , connectionReliability    :: !Reliability
---      , connectionLocalEndPoint  :: !LocalEndPoint
-      , connectionState :: !(MVar ZMQConnectionState)
-      , connectionReady :: !(MVar ())
+      , connectionState          :: !(MVar ZMQConnectionState)
+      , connectionReady          :: !(MVar ())
       }
 
 data ZMQConnectionState
       = ZMQConnectionInit
       | ZMQConnectionValid !ValidZMQConnection
       | ZMQConnectionClosed
+      | ZMQConnectionFailed
 
 data ValidZMQConnection = ValidZMQConnection !Word64
 
-data LocalEndPointEvent
-        = LocalEndPointConnectionOpen LocalEndPoint EndPointAddress Reliability
-            (MVar (Either (TransportError ConnectErrorCode) Connection))
-        | LocalEndPointConnectionClose ZMQConnection
-        | LocalEndPointClose
-
 data RemoteEndPoint = RemoteEndPoint
       { remoteEndPointAddress :: !EndPointAddress
-      , remoteEndPointThread  :: !(Async ())
-      , remoteEndPointState   :: !(MVar RemoteEndPointState)
+      , remoteEndPointState   :: !(MVar RemoteEndPointState) 
       }
 
 data RemoteEndPointState
       = RemoteEndPointValid ValidRemoteEndPoint
       | RemoteEndPointClosed
-      | RemoteEndPointPending (IORef [ValidRemoteEndPoint -> IO ()])
+      | RemoteEndPointFailed
+      | RemoteEndPointPending (IORef [RemoteEndPointState -> IO RemoteEndPointState])
+      | RemoteEndPointClosing ClosingRemoteEndPoint
 
 data ValidRemoteEndPoint = ValidRemoteEndPoint
-      { _remoteEndPointChan :: !(Chan [ByteString])
-      , _remoteEndPointPendingConnections :: !(Counter ConnectionId ZMQConnection)
+      { _remoteEndPointChan                 :: !(Socket Push)
+      , _remoteEndPointPendingConnections   :: !(Counter ConnectionId ZMQConnection)
+      , _remoteEndPointIncommingConnections :: !(Set ConnectionId)
+      , _remoteEndPointOutgoingCount        :: !Int
       }
--- Counter wrapper
+
+data ClosingRemoteEndPoint = ClosingRemoteEndPoint
+     { _remoteEndPointClosingSocket :: !(Socket Push)
+     , _remoteEndPointDone :: !(MVar ())
+     }
 
 data Counter a b = Counter { counterNext   :: !a
                            , counterValue :: !(Map a b)
