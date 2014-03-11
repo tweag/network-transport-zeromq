@@ -370,7 +370,7 @@ endPointCreate params ctx address = do
                             conn <- ZMQConnection <$> pure ourEp
                                                   <*> pure rep
                                                   <*> pure rel
-                                                  <*> newMVar (ZMQConnectionValid $ ValidZMQConnection i)
+                                                  <*> newMVar (ZMQConnectionValid $ ValidZMQConnection Nothing i)
                                                   <*> newEmptyMVar
                             w' <- register (succ i) w
                             return ( w'
@@ -381,7 +381,7 @@ endPointCreate params ctx address = do
                             conn <- ZMQConnection <$> pure ourEp
                                                   <*> pure rep
                                                   <*> pure rel
-                                                  <*> newMVar (ZMQConnectionValid $ ValidZMQConnection i)
+                                                  <*> newMVar (ZMQConnectionValid $ ValidZMQConnection Nothing i)
                                                   <*> newEmptyMVar
                             modifyIORef w (\xs -> (register (succ i))  : xs)
                             return ( z
@@ -429,7 +429,7 @@ endPointCreate params ctx address = do
                                ZMQConnectionFailed -> return ()
                                ZMQConnectionInit -> return  () -- throwM InvariantViolation
                                ZMQConnectionClosed -> return ()
-                               ZMQConnectionValid (ValidZMQConnection _) -> do
+                               ZMQConnectionValid (ValidZMQConnection _ _) -> do
                                   atomically $ writeTMChan chan (ConnectionClosed idx)
                                   connectionCleanup (connectionRemoteEndPoint conn) idx)
               where
@@ -456,7 +456,7 @@ endPointCreate params ctx address = do
                                    , do 
                                         modifyMVar_ (connectionState c) $ \case
                                           ZMQConnectionFailed -> return ZMQConnectionFailed
-                                          ZMQConnectionInit -> return $ ZMQConnectionValid (ValidZMQConnection theirId)
+                                          ZMQConnectionInit -> return $ ZMQConnectionValid (ValidZMQConnection (Just sock) theirId)
                                           ZMQConnectionClosed -> do
                                               ZMQ.send sock [] $ encode' (MessageCloseConnection theirId)
                                               -- decrement value
@@ -522,7 +522,7 @@ endPointCreate params ctx address = do
       return (port, pull)
 
 apiSend :: ZMQConnection -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
-apiSend c@(ZMQConnection l e _ s _) b = do
+apiSend c@(ZMQConnection l e _ s _) b = do 
    result <- trySome inner
    case result of
      Left ex -> do
@@ -539,7 +539,7 @@ apiSend c@(ZMQConnection l e _ s _) b = do
        ZMQConnectionInit   -> return $ yield >> inner -- readMVar (connectionReady c) >> inner
        ZMQConnectionClosed -> afterP $ Left $ TransportError SendClosed "Connection is closed"
        ZMQConnectionFailed -> afterP $ Left $ TransportError SendFailed "Connection is failed"
-       ZMQConnectionValid (ValidZMQConnection idx) -> do
+       ZMQConnectionValid (ValidZMQConnection _ idx) -> do
          evs <- ZMQ.events (_remoteEndPointChan v)
          if ZMQ.Out `elem` evs
          then do ZMQ.sendMulti (_remoteEndPointChan v) $ encode' (MessageData idx) :| b
@@ -571,7 +571,7 @@ apiClose (ZMQConnection _ e _ s _) = join $ do
      ZMQConnectionInit   -> return (ZMQConnectionClosed, return ())
      ZMQConnectionClosed -> return (ZMQConnectionClosed, return ())
      ZMQConnectionFailed -> return (ZMQConnectionClosed, return ())
-     ZMQConnectionValid (ValidZMQConnection idx) -> do
+     ZMQConnectionValid (ValidZMQConnection _ idx) -> do
        return (ZMQConnectionClosed, do
          modifyMVar_ (remoteEndPointState e) $ \case
            v@RemoteEndPointClosed    -> return v
@@ -635,7 +635,7 @@ apiConnect ctx ourEp theirAddr reliability _hints = do
       ZMQConnectionFailed{} -> afterP $ Left $ TransportError ConnectFailed "Connection failed."
       ZMQConnectionClosed{} -> throwM $ InvariantViolation "Connection closed."
     ourAddr = localEndPointAddress ourEp
-    go conn s = tryPutMVar (connectionReady conn) () >> inner conn s
+    go conn s = inner conn s
     inner _ RemoteEndPointClosed      = return RemoteEndPointClosed
     inner _ RemoteEndPointPending{}   = throwM $ InvariantViolation "Connection pending."
     inner _ (RemoteEndPointClosing x) = return $ RemoteEndPointClosing x
@@ -683,7 +683,8 @@ createOrGetRemoteEndPoint ctx ourEp theirAddr = join $ do
 --           (B8.unpack $ endPointAddressToByteString theirAddr)
       push <- ZMQ.socket ctx ZMQ.Push
       state <- newMVar . RemoteEndPointPending =<< newIORef []
-      let rep = RemoteEndPoint theirAddr state
+      opened <- newIORef False
+      let rep = RemoteEndPoint theirAddr state opened
       return ( LocalEndPointValid v{ _localEndPointRemotes = Map.insert theirAddr rep m}
              , initialize push rep >> return (Right rep))
     ourAddr = localEndPointAddress ourEp
@@ -705,7 +706,10 @@ createOrGetRemoteEndPoint ctx ourEp theirAddr = join $ do
           ZMQ.send push [] $ encode' $ MessageConnect ourAddr
           let v = ValidRemoteEndPoint push (Counter 0 Map.empty) Set.empty 0
           modifyMVar_ (remoteEndPointState rep) $ \case
-            RemoteEndPointPending p -> foldM (\y f -> f y) (RemoteEndPointValid v) . Prelude.reverse =<< readIORef p
+            RemoteEndPointPending p -> do
+                x <- foldM (\y f -> f y) (RemoteEndPointValid v) . Prelude.reverse =<< readIORef p
+                modifyIORef (remoteEndPointOpened rep) (const True)
+                return x
             RemoteEndPointValid _   -> throwM $ InvariantViolation "RemoteEndPoint valid."
             RemoteEndPointClosed    -> return RemoteEndPointClosed
             RemoteEndPointClosing x -> return (RemoteEndPointClosing x)
@@ -719,6 +723,7 @@ cleanupRemoteEndPoint :: LocalEndPoint
                       -> IO (Maybe RemoteEndPointState)
 cleanupRemoteEndPoint lep rep actions = modifyMVar (localEndPointState lep) $ \case
     LocalEndPointValid v -> do
+      modifyIORef (remoteEndPointOpened rep) (const False)
       oldState <- swapMVar (remoteEndPointState rep) newState
       case oldState of
         RemoteEndPointValid w -> do
@@ -768,6 +773,7 @@ remoteEndPointClose silent lep rep = do
 --   printf "[???] remoteEndPointClose %s\n"          
 --          (B8.unpack $ endPointAddressToByteString $ lAddr)
 --          (B8.unpack $ endPointAddressToByteString $ remoteEndPointAddress rep)
+   modifyIORef (remoteEndPointOpened rep) (const False)
    join $ modifyMVar (remoteEndPointState rep) $ \o -> case o of
      RemoteEndPointFailed        -> return (o, return ())
      RemoteEndPointClosed        -> return (o, return ())

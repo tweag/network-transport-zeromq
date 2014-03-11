@@ -135,11 +135,15 @@ data ZMQConnectionState
       | ZMQConnectionClosed
       | ZMQConnectionFailed
 
-data ValidZMQConnection = ValidZMQConnection !Word64
+data ValidZMQConnection = ValidZMQConnection
+      { _connectionSocket         :: !(Maybe (ZMQ.Socket ZMQ.Push))
+      , _connectionId             :: !Word64
+      }
 
 data RemoteEndPoint = RemoteEndPoint
       { remoteEndPointAddress :: !EndPointAddress
       , remoteEndPointState   :: !(MVar RemoteEndPointState) 
+      , remoteEndPointOpened  :: !(IORef Bool)
       }
 
 data RemoteEndPointState
