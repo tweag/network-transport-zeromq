@@ -630,7 +630,7 @@ apiConnect ctx ourEp theirAddr reliability _hints = do
                    , return $ Left $ TransportError ConnectFailed "RemoteEndPoint failed.")
   where
     waitReady conn apiConn = join $ withMVar (connectionState conn) $ \case
-      ZMQConnectionInit{}   -> return $ waitReady conn apiConn
+      ZMQConnectionInit{}   -> return $ yield {-readMVar (connectionReady conn)-} >> waitReady conn apiConn
       ZMQConnectionValid{}  -> afterP $ Right apiConn
       ZMQConnectionFailed{} -> afterP $ Left $ TransportError ConnectFailed "Connection failed."
       ZMQConnectionClosed{} -> throwM $ InvariantViolation "Connection closed."
