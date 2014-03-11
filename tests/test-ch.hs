@@ -14,6 +14,7 @@ import Network.Transport.Test (TestTransport(..))
 import Network.Transport.ZMQ
   ( createTransportEx
   , defaultZMQParameters
+  , breakConnection
   )
 import Control.Concurrent.MVar
 import Control.Concurrent.STM
@@ -31,16 +32,3 @@ main = do
       { testTransport = transport
       , testBreakConnection = breakConnection zmqt
       }
-
-breakConnection transport from to = do
-  withMVar (_transportState transport) $ \x -> case x of
-    TransportValid v -> 
-      let b = c   `Map.lookup` _transportEndPoints v
-          c = read $ B.unpack . snd $ B.spanEnd (/= '.') $ endPointAddressToByteString to
-      in case b of
-          Nothing -> return ()
-          Just ep -> withMVar (localEndPointState ep) $ \y -> case y of
-            LocalEndPointValid w -> do
-              atomically $ writeTMChan (_localEndPointChan w)
-                         $ ErrorEvent $ TransportError (EventConnectionLost from) "FakeConnectionLost"      
-    _ -> return ()

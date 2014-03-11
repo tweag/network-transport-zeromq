@@ -484,7 +484,7 @@ endPointCreate params ctx address = do
               Nothing -> return ()
               Just st -> do
                 onValidEndPoint ourEp $ \v -> atomically $ writeTMChan (_localEndPointChan v) $
-                   ErrorEvent $ TransportError (EventConnectionLost (localEndPointAddress ourEp)) "Exception on remote side"
+                   ErrorEvent $ TransportError (EventConnectionLost theirAddress) "Exception on remote side"
                 closeRemoteEndPoint ourEp rep st
         MessageEndPointCloseOk theirAddress -> getRemoteEndPoint ourEp theirAddress >>= \case
           Nothing -> return ()
@@ -540,8 +540,19 @@ apiSend c@(ZMQConnection l e _ s _) b = do
        ZMQConnectionClosed -> afterP $ Left $ TransportError SendClosed "Connection is closed"
        ZMQConnectionFailed -> afterP $ Left $ TransportError SendFailed "Connection is failed"
        ZMQConnectionValid (ValidZMQConnection idx) -> do
-         ZMQ.sendMulti (_remoteEndPointChan v) $ encode' (MessageData idx) :| b
-         afterP $ Right ()
+         evs <- ZMQ.events (_remoteEndPointChan v)
+         if ZMQ.Out `elem` evs
+         then do ZMQ.sendMulti (_remoteEndPointChan v) $ encode' (MessageData idx) :| b
+                 afterP $ Right ()
+         else return $ do
+            mz <- cleanupRemoteEndPoint l e Nothing
+            case mz of
+              Nothing -> return ()
+              Just z  -> do
+                onValidEndPoint l $ \v -> atomically $ writeTMChan (_localEndPointChan v) $
+                   ErrorEvent $ TransportError (EventConnectionLost (remoteEndPointAddress e)) "Exception on remote side"
+                closeRemoteEndPoint l e z
+            return $ Left $ TransportError SendFailed "Connection broken."
    cleanup = do
      cleanupRemoteEndPoint l e 
        (Just $ \v -> ZMQ.send (_remoteEndPointChan v) [] $ encode' (MessageEndPointClose (localEndPointAddress l) False))
@@ -832,6 +843,13 @@ breakConnection zmqt from to = join $ withMVar (_transportState zmqt) $ \case
     Just x  -> withMVar (localEndPointState x) $ \case
       LocalEndPointValid w -> case to `Map.lookup` _localEndPointRemotes w of
         Nothing -> afterP ()
-        Just y  -> return $ remoteEndPointClose True x y
+        Just y  -> return $ do
+            mz <- cleanupRemoteEndPoint x y Nothing
+            case mz of
+              Nothing -> return ()
+              Just z  -> do
+                onValidEndPoint x $ \v -> atomically $ writeTMChan (_localEndPointChan v) $
+                   ErrorEvent $ TransportError (EventConnectionLost to) "Exception on remote side"
+                closeRemoteEndPoint x y z
       LocalEndPointClosed   -> afterP ()
   TransportClosed -> afterP ()
