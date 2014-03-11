@@ -7,6 +7,7 @@ module Network.Transport.ZMQ
   , defaultZMQParameters  -- :: ZMQParameters
   -- * Internals
   , createTransportEx
+  , breakConnection
   -- * $Design
   ) where
 
@@ -65,7 +66,8 @@ import qualified Data.Set as Set
 import           Data.Typeable
 import           Data.Traversable
 import           Data.Void
-import           GHC.Generics 
+import           GHC.Generics
+      ( Generic )
 
 import Network.Transport
 import Network.Transport.ZMQ.Types
@@ -260,7 +262,7 @@ apiNewEndPoint params transport = do
          eEndPoint <- endPointCreate params ctx (B8.unpack addr)
          case eEndPoint of
            Right (port, ep, chan) -> return 
-	   	  ( TransportValid i{_transportEndPoints = Map.insert port ep (_transportEndPoints i)}
+	   	  ( TransportValid i{_transportEndPoints = Map.insert (localEndPointAddress ep) ep (_transportEndPoints i)}
                   , Right (ep, ctx, chan))
            Left _ -> return (v, Left $ TransportError NewEndPointFailed "Failed to create new endpoint.")
     case elep of
@@ -303,9 +305,7 @@ apiCloseEndPoint transport lep = do
     modifyMVar_ (_transportState transport) $ \case
       TransportClosed  -> return TransportClosed 
       TransportValid v -> return $ TransportValid
-        v{_transportEndPoints = Map.delete port (_transportEndPoints v)}
-  where
-    port = localEndPointPort lep
+        v{_transportEndPoints = Map.delete (localEndPointAddress lep) (_transportEndPoints v)}
 
 endPointCreate :: ZMQParameters
                -> Context
@@ -820,3 +820,18 @@ trySome f = try f >>= \case
     Just m  -> throwM (m::AsyncException)
     Nothing -> return $ Left e
   Right x -> return $ Right x
+
+-- | Break endpoint connection.
+breakConnection :: ZMQTransport
+                -> EndPointAddress
+                -> EndPointAddress
+                -> IO ()
+breakConnection zmqt from to = join $ withMVar (_transportState zmqt) $ \case
+  TransportValid v -> case from `Map.lookup` _transportEndPoints v of
+    Nothing -> afterP ()
+    Just x  -> withMVar (localEndPointState x) $ \case
+      LocalEndPointValid w -> case to `Map.lookup` _localEndPointRemotes w of
+        Nothing -> afterP ()
+        Just y  -> return $ remoteEndPointClose True x y
+      LocalEndPointClosed   -> afterP ()
+  TransportClosed -> afterP ()

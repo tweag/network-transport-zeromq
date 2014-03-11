@@ -95,7 +95,7 @@ data TransportState
 -- | Transport state.
 data ValidTransportState = ValidTransportState
       { _transportContext   :: !ZMQ.Context
-      , _transportEndPoints :: !(Map Int LocalEndPoint)
+      , _transportEndPoints :: !(Map EndPointAddress LocalEndPoint)
       }
 
 data LocalEndPoint = LocalEndPoint
