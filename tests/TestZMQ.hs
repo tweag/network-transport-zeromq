@@ -35,4 +35,4 @@ testTransport' newTransport = do
     , ("Kill",                  testKill newTransport 10)
     ]
   where
-    numPings = 1000 :: Int
+    numPings = 10000 :: Int

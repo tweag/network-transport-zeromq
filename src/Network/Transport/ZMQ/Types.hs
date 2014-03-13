@@ -96,6 +96,7 @@ data TransportState
 data ValidTransportState = ValidTransportState
       { _transportContext   :: !ZMQ.Context
       , _transportEndPoints :: !(Map EndPointAddress LocalEndPoint)
+      , _transportAuth      :: !(Maybe (Async ()))
       }
 
 data LocalEndPoint = LocalEndPoint

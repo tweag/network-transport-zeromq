@@ -233,9 +233,12 @@ createTransportEx :: ZMQParameters    -- ^ Transport features.
                   -> IO (Either (TransportError Void) (ZMQTransport, Transport))
 createTransportEx params host = do
     ctx       <- ZMQ.context
+    mtid <- case authorizationType params of
+              ZMQAuthPlain user pass -> Just <$> ZMQ.authManager ctx user pass
+              _ -> return Nothing
     transport <- ZMQTransport 
     	<$> pure addr 
-        <*> newMVar (TransportValid $ ValidTransportState ctx Map.empty)
+        <*> newMVar (TransportValid $ ValidTransportState ctx Map.empty mtid)
     return $ Right (transport, Transport
       { newEndPoint    = apiNewEndPoint params transport
       , closeTransport = apiTransportClose transport
@@ -249,7 +252,10 @@ apiTransportClose transport = do
     old <- swapMVar (_transportState transport) TransportClosed
     case old of
       TransportClosed -> return ()
-      TransportValid (ValidTransportState ctx m) -> do
+      TransportValid (ValidTransportState ctx m mtid) -> do
+        case mtid of
+          Nothing -> return ()
+          Just tid -> Async.cancel tid
         forM_ (Map.elems m) $ apiCloseEndPoint transport
 	ZMQ.term ctx
 
@@ -258,7 +264,7 @@ apiNewEndPoint params transport = do
 --    printf "[transport] endpoint create\n"
     elep <- modifyMVar (_transportState transport) $ \case
        TransportClosed -> return (TransportClosed, Left $ TransportError NewEndPointFailed "Transport is closed.")
-       v@(TransportValid i@(ValidTransportState ctx _)) -> do
+       v@(TransportValid i@(ValidTransportState ctx _ _)) -> do
          eEndPoint <- endPointCreate params ctx (B8.unpack addr)
          case eEndPoint of
            Right (port, ep, chan) -> return 
@@ -274,7 +280,7 @@ apiNewEndPoint params transport = do
                 Nothing -> error "channel is closed"
                 Just x  -> return x
           , address = localEndPointAddress ep
-          , connect = apiConnect ctx ep
+          , connect = apiConnect params ctx ep
           , closeEndPoint = apiCloseEndPoint transport ep
           , newMulticastGroup     = return . Left $
               TransportError NewMulticastGroupUnsupported "Multicast not supported"
@@ -352,7 +358,7 @@ endPointCreate params ctx address = do
 --          printf "[%s] message connect from %s\n"
 --                 (B8.unpack $ endPointAddressToByteString ourAddr)
 --                 (B8.unpack $ endPointAddressToByteString theirAddress)
-          void $ createOrGetRemoteEndPoint ctx ourEp theirAddress
+          void $ createOrGetRemoteEndPoint params ctx ourEp theirAddress
         MessageInitConnection theirAddress theirId rel -> do
 --        printf "[%s] message init connection from %s\n"
 --                (B8.unpack $ endPointAddressToByteString ourAddr)
@@ -514,8 +520,6 @@ endPointCreate params ctx address = do
           ZMQNoAuth -> return ()
           ZMQAuthPlain p u -> do
               ZMQ.setPlainServer True pull
-              ZMQ.setPlainPassword (ZMQ.restrict p) pull
-              ZMQ.setPlainUserName (ZMQ.restrict u) pull
       ZMQ.setSendHighWM (ZMQ.restrict (highWaterMark params)) pull
       ZMQ.setLinger (ZMQ.restrict (lingerPeriod params)) pull
       port <- ZMQ.bindFromRangeRandom pull address (minPort params) (maxPort params) (maxTries params)
@@ -589,17 +593,18 @@ apiClose (ZMQConnection _ e _ s _) = join $ do
       ZMQ.send sock [] $ encode' (MessageCloseConnection idx)
       return w
 
-apiConnect :: Context
+apiConnect :: ZMQParameters
+           -> Context
            -> LocalEndPoint
            -> EndPointAddress
            -> Reliability
            -> ConnectHints
            -> IO (Either (TransportError ConnectErrorCode) Connection)
-apiConnect ctx ourEp theirAddr reliability _hints = do
+apiConnect params ctx ourEp theirAddr reliability _hints = do
 --  printf "[%s] apiConnect to %s\n"
 --       (B8.unpack $ endPointAddressToByteString $ _localEndPointAddress ourEp)
 --       (B8.unpack $ endPointAddressToByteString theirAddr)
-    eRep <- createOrGetRemoteEndPoint ctx ourEp theirAddr
+    eRep <- createOrGetRemoteEndPoint params ctx ourEp theirAddr
     case eRep of
       Left{} -> return $ Left $ TransportError ConnectFailed "LocalEndPoint is closed."
       Right rep -> do 
@@ -652,11 +657,12 @@ getRemoteEndPoint ourEp theirAddr = do
       LocalEndPointValid v -> return $ theirAddr `Map.lookup` (_localEndPointRemotes v)
       LocalEndPointClosed  -> return Nothing
 
-createOrGetRemoteEndPoint :: Context
+createOrGetRemoteEndPoint :: ZMQParameters
+                          -> Context
                           -> LocalEndPoint
                           -> EndPointAddress
                           -> IO (Either ZMQError RemoteEndPoint)
-createOrGetRemoteEndPoint ctx ourEp theirAddr = join $ do
+createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
 --    printf "[%s] apiConnect to %s\n"
 --           saddr
 --           (B8.unpack $ endPointAddressToByteString theirAddr)
@@ -682,6 +688,11 @@ createOrGetRemoteEndPoint ctx ourEp theirAddr = join $ do
 --           (B8.unpack $ endPointAddressToByteString $ _localEndPointAddress ourEp)
 --           (B8.unpack $ endPointAddressToByteString theirAddr)
       push <- ZMQ.socket ctx ZMQ.Push
+      case authorizationType params of
+          ZMQNoAuth -> return ()
+          ZMQAuthPlain p u -> do
+              ZMQ.setPlainPassword (ZMQ.restrict p) push
+              ZMQ.setPlainUserName (ZMQ.restrict u) push
       state <- newMVar . RemoteEndPointPending =<< newIORef []
       opened <- newIORef False
       let rep = RemoteEndPoint theirAddr state opened
@@ -843,19 +854,21 @@ breakConnection :: ZMQTransport
                 -> EndPointAddress
                 -> EndPointAddress
                 -> IO ()
-breakConnection zmqt from to = join $ withMVar (_transportState zmqt) $ \case
-  TransportValid v -> case from `Map.lookup` _transportEndPoints v of
-    Nothing -> afterP ()
-    Just x  -> withMVar (localEndPointState x) $ \case
-      LocalEndPointValid w -> case to `Map.lookup` _localEndPointRemotes w of
+breakConnection zmqt from to = one from to >> one to from 
+  where
+    one f t = join $ withMVar (_transportState zmqt) $ \case
+      TransportValid v -> case f `Map.lookup` _transportEndPoints v of
         Nothing -> afterP ()
-        Just y  -> return $ do
-            mz <- cleanupRemoteEndPoint x y Nothing
-            case mz of
-              Nothing -> return ()
-              Just z  -> do
-                onValidEndPoint x $ \v -> atomically $ writeTMChan (_localEndPointChan v) $
-                   ErrorEvent $ TransportError (EventConnectionLost to) "Exception on remote side"
-                closeRemoteEndPoint x y z
-      LocalEndPointClosed   -> afterP ()
-  TransportClosed -> afterP ()
+        Just x  -> withMVar (localEndPointState x) $ \case
+          LocalEndPointValid w -> case t `Map.lookup` _localEndPointRemotes w of
+            Nothing -> afterP ()
+            Just y  -> return $ do
+                mz <- cleanupRemoteEndPoint x y Nothing
+                case mz of
+                  Nothing -> return ()
+                  Just z  -> do
+                    onValidEndPoint x $ \v -> atomically $ writeTMChan (_localEndPointChan v) $
+                       ErrorEvent $ TransportError (EventConnectionLost to) "Exception on remote side"
+                    closeRemoteEndPoint x y z
+          LocalEndPointClosed   -> afterP ()
+      TransportClosed -> afterP ()
