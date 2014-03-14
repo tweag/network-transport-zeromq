@@ -69,15 +69,10 @@ authManager ctx user pass = do
     P.bind req "inproc://zeromq.zap.01"
     async $ forever $ do
       ("1.0":requestId:domain:ipAddress:identity:mech:xs) <- P.receiveMulti req
-      print xs
-      print user
-      print pass
-      print mech
       case mech of
         "PLAIN" -> case xs of
            (pass':user':_)
              | user == user' && pass == pass' -> do
-                print "ok"
                 P.sendMulti req $ "1.0" :| [requestId, "200", "OK", "", ""]
              | otherwise -> P.sendMulti req $ "1.0" :| [requestId, "400", "Credentials are not implemented", "", ""]
            _ -> P.sendMulti req $ "1.0" :| [requestId, "500", "Method not implemented", "", ""]
