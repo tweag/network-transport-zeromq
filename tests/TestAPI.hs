@@ -32,7 +32,22 @@ main = finish <=< trySome $ do
     print <=< receive $ ep1
     print <=< receive $ ep2
     return ()
+
+    putStrLn "multicast:"
+    Right g1 <- newMulticastGroup ep1
+    multicastSubscribe g1
+    threadDelay 1000000
+    multicastSend g1 ["test"]
+    print =<< receive ep1
+    Right g2 <- resolveMulticastGroup ep2 (multicastAddress g1)
+    multicastSubscribe g2
+    threadDelay 100000
+    multicastSend g2 ["test-2"]
+    print =<< receive ep2
+    print =<< receive ep1
+    
     --
+    putStrLn "auth:"
     Right tr2 <- createTransport
                    defaultZMQParameters {authorizationType=ZMQAuthPlain "user" "password"}
                    "127.0.0.1"
@@ -44,6 +59,8 @@ main = finish <=< trySome $ do
     Right c4  <- connect ep3 (address ep4) ReliableOrdered defaultConnectHints
     Right _   <- send c4 ["5567"]
     print <=< replicateM 2 $ receive ep4
+
+
   where
     finish (Left e) = print e >> exitWith (ExitFailure 1)
     finish Right{} = exitWith ExitSuccess

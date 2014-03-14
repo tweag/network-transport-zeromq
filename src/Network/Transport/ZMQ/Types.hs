@@ -20,6 +20,10 @@ module Network.Transport.ZMQ.Types
     , ZMQConnection(..)
     , ZMQConnectionState(..)
     , ValidZMQConnection(..)
+      -- ** ZeroMQ multicast
+    , ZMQMulticastGroup(..)
+    , MulticastGroupState(..)
+    , ValidMulticastGroup(..)
       -- * Internal data structures
     , Counter(..)
     , nextElement
@@ -120,6 +124,8 @@ data ValidLocalEndPoint = ValidLocalEndPoint
         -- ^ thread id
       , _localEndPointOpened      :: !(IORef Bool)
         -- ^ is remote endpoint opened
+      , _localEndPointMulticastGroups :: !(Map MulticastAddress ZMQMulticastGroup)
+        -- ^ list of multicast nodes
       }
 
 data ZMQConnection = ZMQConnection
@@ -166,6 +172,19 @@ data ClosingRemoteEndPoint = ClosingRemoteEndPoint
      , _remoteEndPointDone :: !(MVar ())
      }
 
+data ZMQMulticastGroup = ZMQMulticastGroup
+      { multicastGroupState         :: MVar MulticastGroupState
+      , multicastGroupClose         :: IO ()
+      }
+
+data MulticastGroupState
+        = MulticastGroupValid ValidMulticastGroup
+        | MulticastGroupClosed
+
+data ValidMulticastGroup = ValidMulticastGroup
+      { _multicastGroupSubscribed :: IORef Bool
+      }
+
 data Counter a b = Counter { counterNext   :: !a
                            , counterValue :: !(Map a b)
                            }
@@ -197,3 +216,4 @@ nextElementM' t me (Counter n m) =
   where
     n' = succ n
     mv = me n'
+

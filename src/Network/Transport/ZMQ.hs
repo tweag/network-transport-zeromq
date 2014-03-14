@@ -29,29 +29,26 @@ import           Control.Monad
       , join
       , forM_
       , foldM
-      , replicateM
       , when
-      , (<=<)
       )
 import           Control.Exception 
-      ( evaluate
-      , AsyncException
-      )
+      ( AsyncException )
 import           Control.Monad.Catch
       ( finally
-      , bracket
       , try
       , throwM
       , Exception
       , SomeException
       , fromException
       , mask
+      , mask_
       )
 import           Data.Binary
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as B8
+import qualified Data.Foldable as Foldable
 import           Data.IORef
       ( newIORef
       , modifyIORef
@@ -59,7 +56,6 @@ import           Data.IORef
       , writeIORef
       )
 import           Data.List.NonEmpty
-import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 -- import           Data.Set (Set)
 import qualified Data.Set as Set
@@ -71,12 +67,14 @@ import           GHC.Generics
 
 import Network.Transport
 import Network.Transport.ZMQ.Types
+import           System.IO
+      ( fixIO )
 import           System.ZMQ4
       ( Context )
 import qualified System.ZMQ4 as ZMQ
 import qualified System.ZMQ4.Utils   as ZMQ
 
-import Text.Printf
+-- import Text.Printf
 
 --------------------------------------------------------------------------------
 --- Internal datatypes                                                        --
@@ -267,7 +265,7 @@ apiNewEndPoint params transport = do
        v@(TransportValid i@(ValidTransportState ctx _ _)) -> do
          eEndPoint <- endPointCreate params ctx (B8.unpack addr)
          case eEndPoint of
-           Right (port, ep, chan) -> return 
+           Right (_port, ep, chan) -> return 
 	   	  ( TransportValid i{_transportEndPoints = Map.insert (localEndPointAddress ep) ep (_transportEndPoints i)}
                   , Right (ep, ctx, chan))
            Left _ -> return (v, Left $ TransportError NewEndPointFailed "Failed to create new endpoint.")
@@ -282,10 +280,8 @@ apiNewEndPoint params transport = do
           , address = localEndPointAddress ep
           , connect = apiConnect params ctx ep
           , closeEndPoint = apiCloseEndPoint transport ep
-          , newMulticastGroup     = return . Left $
-              TransportError NewMulticastGroupUnsupported "Multicast not supported"
-          , resolveMulticastGroup = return . return . Left $
-              TransportError ResolveMulticastGroupUnsupported "Multicast not supported"
+          , newMulticastGroup = apiNewMulticastGroup params transport ep
+          , resolveMulticastGroup = apiResolveMulticastGroup transport ep
           }
       Left x -> return $ Left x
   where
@@ -300,7 +296,7 @@ apiCloseEndPoint transport lep = do
 --           (B8.unpack $ endPointAddressToByteString $ _localEndPointAddress lep)
     old <- readMVar (localEndPointState lep)
     case old of
-      LocalEndPointValid (ValidLocalEndPoint x _ _ threadId _) -> do
+      LocalEndPointValid (ValidLocalEndPoint x _ _ threadId _ _) -> do
         -- close channel, no events will be received
         atomically $ do
           writeTMChan x EndPointClosed
@@ -317,12 +313,12 @@ endPointCreate :: ZMQParameters
                -> Context
                -> String
                -> IO (Either (TransportError NewEndPointErrorCode) (Int,LocalEndPoint, TMChan Event))
-endPointCreate params ctx address = do
+endPointCreate params ctx addr = do
     em <- try $ accure
     case em of
       Right (port, pull) -> do
           chOut <- newTMChanIO
-          lep   <- LocalEndPoint <$> pure (EndPointAddress $ B8.pack (address ++ ":" ++ show port))
+          lep   <- LocalEndPoint <$> pure (EndPointAddress $ B8.pack (addr ++ ":" ++ show port))
                                  <*> newEmptyMVar
                                  <*> pure port
           opened <- newIORef True
@@ -330,7 +326,7 @@ endPointCreate params ctx address = do
              Async.async $ (restore (receiver pull lep chOut)) 
                            `finally` finalizeEndPoint lep port pull
           putMVar (localEndPointState lep) $ LocalEndPointValid 
-            (ValidLocalEndPoint chOut (Counter 0 Map.empty) Map.empty thread opened)
+            (ValidLocalEndPoint chOut (Counter 0 Map.empty) Map.empty thread opened Map.empty)
           return $ Right (port, lep, chOut)
       Left (_e::SomeException)  -> do
           return $ Left $ TransportError NewEndPointInsufficientResources "no free sockets"
@@ -511,22 +507,22 @@ endPointCreate params ctx address = do
             void $ Async.mapConcurrently (remoteEndPointClose False ourEp)
                  $ _localEndPointRemotes v
             Async.cancel tid
-            ZMQ.unbind pull (address ++ ":" ++ show port)
+            ZMQ.unbind pull (addr ++ ":" ++ show port)
             ZMQ.close pull
       void $ swapMVar (localEndPointState ourEp) LocalEndPointClosed
     accure = do
       pull <- ZMQ.socket ctx ZMQ.Pull
       case authorizationType params of
           ZMQNoAuth -> return ()
-          ZMQAuthPlain p u -> do
+          ZMQAuthPlain{} -> do
               ZMQ.setPlainServer True pull
       ZMQ.setSendHighWM (ZMQ.restrict (highWaterMark params)) pull
       ZMQ.setLinger (ZMQ.restrict (lingerPeriod params)) pull
-      port <- ZMQ.bindFromRangeRandom pull address (minPort params) (maxPort params) (maxTries params)
+      port <- ZMQ.bindFromRangeRandom pull addr (minPort params) (maxPort params) (maxTries params)
       return (port, pull)
 
 apiSend :: ZMQConnection -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
-apiSend c@(ZMQConnection l e _ s _) b = do 
+apiSend (ZMQConnection l e _ s _) b = do 
    result <- trySome inner
    case result of
      Left ex -> do
@@ -553,12 +549,12 @@ apiSend c@(ZMQConnection l e _ s _) b = do
             case mz of
               Nothing -> return ()
               Just z  -> do
-                onValidEndPoint l $ \v -> atomically $ writeTMChan (_localEndPointChan v) $
+                onValidEndPoint l $ \w -> atomically $ writeTMChan (_localEndPointChan w) $
                    ErrorEvent $ TransportError (EventConnectionLost (remoteEndPointAddress e)) "Exception on remote side"
                 closeRemoteEndPoint l e z
             return $ Left $ TransportError SendFailed "Connection broken."
    cleanup = do
-     cleanupRemoteEndPoint l e 
+     void $ cleanupRemoteEndPoint l e 
        (Just $ \v -> ZMQ.send (_remoteEndPointChan v) [] $ encode' (MessageEndPointClose (localEndPointAddress l) False))
      onValidEndPoint l $ \v -> atomically $ do
        writeTMChan (_localEndPointChan v) $ ErrorEvent $ TransportError
@@ -667,7 +663,7 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
 --           saddr
 --           (B8.unpack $ endPointAddressToByteString theirAddr)
     modifyMVar (localEndPointState ourEp) $ \case
-      LocalEndPointValid v@(ValidLocalEndPoint _ _ m _ o) -> do
+      LocalEndPointValid v@(ValidLocalEndPoint _ _ m _ o _) -> do
         opened <- readIORef o
         if opened
         then do
@@ -707,7 +703,7 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
       monitor <- ZMQ.monitor [ZMQ.ConnectedEvent] ctx push
       putMVar lock ()
       r <- Async.race (threadDelay 1000000) (monitor True)
-      monitor False
+      void $ monitor False
       case r of
         Left _ -> do
           _ <- swapMVar (remoteEndPointState rep) RemoteEndPointFailed
@@ -718,12 +714,12 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
           let v = ValidRemoteEndPoint push (Counter 0 Map.empty) Set.empty 0
           modifyMVar_ (remoteEndPointState rep) $ \case
             RemoteEndPointPending p -> do
-                x <- foldM (\y f -> f y) (RemoteEndPointValid v) . Prelude.reverse =<< readIORef p
+                z <- foldM (\y f -> f y) (RemoteEndPointValid v) . Prelude.reverse =<< readIORef p
                 modifyIORef (remoteEndPointOpened rep) (const True)
-                return x
+                return z
             RemoteEndPointValid _   -> throwM $ InvariantViolation "RemoteEndPoint valid."
             RemoteEndPointClosed    -> return RemoteEndPointClosed
-            RemoteEndPointClosing x -> return (RemoteEndPointClosing x)
+            RemoteEndPointClosing j -> return (RemoteEndPointClosing j)
             RemoteEndPointFailed    -> return RemoteEndPointFailed
 
 -- | Close all endpoint connections, return previous state in case
@@ -811,8 +807,8 @@ remoteEndPointClose silent lep rep = do
      unless silent $ do
        ZMQ.send  c [] (encode' (MessageEndPointClose (localEndPointAddress lep) True))
        yield
-       Async.race (readMVar lock) (threadDelay 1000000)
-       tryPutMVar lock ()
+       void $ Async.race (readMVar lock) (threadDelay 1000000)
+       void $ tryPutMVar lock ()
        closeRemoteEndPoint lep rep old
        return ()       
    go _ _ = return ()    
@@ -867,8 +863,237 @@ breakConnection zmqt from to = one from to >> one to from
                 case mz of
                   Nothing -> return ()
                   Just z  -> do
-                    onValidEndPoint x $ \v -> atomically $ writeTMChan (_localEndPointChan v) $
+                    onValidEndPoint x $ \j -> atomically $ writeTMChan (_localEndPointChan j) $
                        ErrorEvent $ TransportError (EventConnectionLost to) "Exception on remote side"
                     closeRemoteEndPoint x y z
           LocalEndPointClosed   -> afterP ()
       TransportClosed -> afterP ()
+
+
+
+-- Multicast group schema:
+--
+--     +--------------+
+--     | EndPoint     |<----------------+
+--     +--------------+                 | events
+--            |                         |
+--            +------------------+      |
+--                               |      |
+--                  +------------------------------+
+--                  | Multicast Group (Server)     |
+--                  +--+     +--+     +--+     +---+
+--                     | Rep |  | Pub |  | Sub |
+--                     +-----+  +-----+  +-----+
+--                        ^        |        ^
+--              request   |        |        |
+--           +------------+        +--------+ messages
+--           |                     |
+--           |         +-----------+
+--           |         |  messages
+--        +-----+  +-----+
+--        | Req |  | Sub |
+--    +---+     +--+     +--+
+--    | Multicast Group     |
+--    +---------------------+
+--
+-- Resolve Group automatically subscribes to the group to receive events,
+-- however unless 'subscribe' will be called endpoint will not reveive any
+-- message. This is done in order to keep ability to notify receiver about
+-- multcast group close.
+--
+-- Current solution incorrectly keeps track of incomming connections, this
+-- means that we can't really guarantee that close message is delivered to
+-- every recipient and it disconnected correctly.
+--
+apiNewMulticastGroup :: ZMQParameters -> ZMQTransport -> LocalEndPoint -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
+apiNewMulticastGroup params zmq lep = withMVar (_transportState zmq) $ \case
+  TransportClosed -> return $ Left $ TransportError NewMulticastGroupFailed "Transport is closed."
+  TransportValid vt -> modifyMVar (localEndPointState lep) $ \case
+    LocalEndPointClosed -> return (LocalEndPointClosed, Left $ TransportError NewMulticastGroupFailed "Transport is closed.")
+    LocalEndPointValid vl -> mask_ $ do
+      (pub, portPub, rep, portRep, wrkThread) <- mkPublisher vt
+
+      let addr = MulticastAddress $ 
+           B8.concat [transportAddress zmq,":",B8.pack (show portPub), ":",B8.pack (show portRep)]
+          subAddr = extractPubAddress addr
+          repAddr = extractRepAddress addr
+
+--      printf "new multicastaddress: %s\n"  (show addr)
+--      printf "[%s] subscribe address: %s\n" (show addr) (B8.unpack subAddr)
+--      printf "[%s] send address: %s\n" (show addr) (B8.unpack repAddr)
+
+      -- subscriber api
+      sub <- ZMQ.socket (_transportContext vt) ZMQ.Sub
+      ZMQ.connect sub (B8.unpack subAddr)
+      ZMQ.subscribe sub ""
+
+      subscribed <- newIORef False
+      (subThread, mgroup) <- fixIO $ \ ~(tid,_) -> do
+        v <- newMVar (MulticastGroupValid (ValidMulticastGroup subscribed))
+        let mgroup = ZMQMulticastGroup v
+                        (apiDeleteMulticastGroupLocal v lep addr rep repAddr pub sub subAddr (Just tid) wrkThread)
+        tid' <- Async.async $ do
+          repeatWhile $ do
+              (ctrl: msg) <- ZMQ.receiveMulti sub
+              if B8.null ctrl
+              then do opened <- readIORef subscribed
+                      when opened $ atomically $ writeTMChan (_localEndPointChan vl) 
+                                               $ ReceivedMulticast addr msg
+                      return True
+              else return False
+        return (tid', mgroup)
+      return ( LocalEndPointValid vl
+             , Right $ MulticastGroup 
+                { multicastAddress = addr
+                , deleteMulticastGroup = apiDeleteMulticastGroupLocal (multicastGroupState mgroup) lep addr rep repAddr pub sub subAddr (Just subThread) wrkThread
+                , maxMsgSize = Nothing
+                , multicastSend = apiMulticastSendLocal mgroup pub
+                , multicastSubscribe = apiMulticastSubscribe mgroup
+                , multicastUnsubscribe = apiMulticastUnsubscribe mgroup
+                , multicastClose = apiMulticastClose
+                }
+              )
+  where
+    mkPublisher vt = do
+      pub <- ZMQ.socket (_transportContext vt) ZMQ.Pub
+      portPub <- ZMQ.bindFromRangeRandom pub (B8.unpack $ transportAddress zmq) (minPort params) (maxPort params) (maxTries params)
+      rep <- ZMQ.socket (_transportContext vt) ZMQ.Rep
+      portRep <- ZMQ.bindFromRangeRandom rep (B8.unpack $ transportAddress zmq) (minPort params) (maxPort params) (maxTries params)
+      wrkThread <- Async.async $ forever $ do
+        msg <- ZMQ.receiveMulti rep
+        ZMQ.sendMulti pub $ "" :| msg
+        ZMQ.send rep [] "OK"
+      return (pub,portPub,rep,portRep, wrkThread)
+
+apiResolveMulticastGroup :: ZMQTransport -> LocalEndPoint -> MulticastAddress -> IO (Either (TransportError ResolveMulticastGroupErrorCode) MulticastGroup)
+apiResolveMulticastGroup zmq lep addr = withMVar (_transportState zmq) $ \case
+  TransportClosed -> return $ Left $ TransportError ResolveMulticastGroupFailed  "Transport is closed."
+  TransportValid vt -> modifyMVar (localEndPointState lep) $ \case
+    LocalEndPointClosed -> return (LocalEndPointClosed, Left $ TransportError ResolveMulticastGroupFailed "Transport is closed.")
+    LocalEndPointValid vl -> mask_ $ do
+      -- socket allocation
+      req <- ZMQ.socket (_transportContext vt) ZMQ.Req
+      ZMQ.connect req (B8.unpack reqAddr)
+      sub <- ZMQ.socket (_transportContext vt) ZMQ.Sub
+      ZMQ.connect sub (B8.unpack subAddr)
+      ZMQ.subscribe sub ""
+
+      subscribed <- newIORef False
+      (subThread, mgroup) <- fixIO $ \ ~(tid,_) -> do
+        v <- newMVar (MulticastGroupValid (ValidMulticastGroup subscribed))
+        let mgroup = ZMQMulticastGroup v
+                        (apiDeleteMulticastGroupRemote v lep addr req reqAddr sub subAddr (Just tid))
+        tid' <- Async.async $ repeatWhile $ do
+          (ctrl: msg) <- ZMQ.receiveMulti sub
+          if B8.null ctrl
+          then do opened <- readIORef subscribed
+                  when opened $ atomically $ writeTMChan (_localEndPointChan vl) 
+                                           $ ReceivedMulticast addr msg
+                  return True
+          else do apiDeleteMulticastGroupRemote v lep addr req reqAddr sub subAddr Nothing
+                  return False
+        return (tid', mgroup)
+
+      return ( LocalEndPointValid
+                vl{_localEndPointMulticastGroups = Map.insert addr mgroup (_localEndPointMulticastGroups vl)}
+             , Right $ MulticastGroup 
+                { multicastAddress = addr
+                , deleteMulticastGroup =
+                    apiDeleteMulticastGroupRemote (multicastGroupState mgroup) lep addr req reqAddr sub subAddr (Just subThread)
+                , maxMsgSize = Nothing
+                , multicastSend = apiMulticastSendRemote mgroup req
+                , multicastSubscribe = apiMulticastSubscribe mgroup 
+                , multicastUnsubscribe = apiMulticastUnsubscribe mgroup
+                , multicastClose = apiMulticastClose
+                }
+              )
+  where
+    reqAddr = extractRepAddress addr
+    subAddr = extractPubAddress addr
+
+
+apiDeleteMulticastGroupRemote :: MVar MulticastGroupState -> LocalEndPoint -> MulticastAddress 
+    -> ZMQ.Socket ZMQ.Req -> ByteString -> ZMQ.Socket ZMQ.Sub -> ByteString -> Maybe (Async.Async ())
+    -> IO ()
+apiDeleteMulticastGroupRemote mstate lep addr req reqAddr sub subAddr mtid = mask_ $ do
+  Foldable.traverse_ (\tid -> Async.cancel tid >> void (Async.waitCatch tid)) mtid
+  modifyMVar_ mstate $ \case
+    MulticastGroupClosed -> return MulticastGroupClosed
+    MulticastGroupValid v -> do
+      modifyIORef (_multicastGroupSubscribed v) (const False)
+      ZMQ.disconnect req (B8.unpack reqAddr)
+      ZMQ.close req
+      ZMQ.unsubscribe sub ""
+      ZMQ.disconnect sub (B8.unpack subAddr)
+      ZMQ.close sub
+      return MulticastGroupClosed
+  modifyMVar_ (localEndPointState lep) $ \case
+    LocalEndPointClosed -> return LocalEndPointClosed
+    LocalEndPointValid v -> return $ LocalEndPointValid
+      v{_localEndPointMulticastGroups = Map.delete addr (_localEndPointMulticastGroups v)}
+
+apiDeleteMulticastGroupLocal :: MVar MulticastGroupState -> LocalEndPoint -> MulticastAddress 
+    -> ZMQ.Socket ZMQ.Rep -> ByteString -> ZMQ.Socket ZMQ.Pub -> ZMQ.Socket ZMQ.Sub -> ByteString -> Maybe (Async.Async ())
+    -> Async.Async () 
+    -> IO ()
+apiDeleteMulticastGroupLocal mstate lep addr rep repAddr pub sub pubAddr mtid wrk = mask_ $ do
+   Foldable.traverse_ (\tid -> Async.cancel tid >> void (Async.waitCatch tid)) mtid
+   void $ Async.cancel wrk >> Async.waitCatch wrk
+   modifyMVar_ mstate $ \case
+     MulticastGroupClosed -> return MulticastGroupClosed
+     MulticastGroupValid v -> do
+       modifyIORef (_multicastGroupSubscribed v) (const False)
+       ZMQ.sendMulti pub $ "C" :| []
+       threadDelay 50000
+       ZMQ.unbind rep (B8.unpack repAddr)
+       ZMQ.close rep
+       ZMQ.unsubscribe sub ""
+       ZMQ.disconnect sub (B8.unpack pubAddr)
+       ZMQ.close sub
+       ZMQ.unbind pub (B8.unpack pubAddr)
+       ZMQ.close pub
+       return MulticastGroupClosed
+   modifyMVar_ (localEndPointState lep) $ \case
+     LocalEndPointClosed -> return LocalEndPointClosed
+     LocalEndPointValid v -> return $ LocalEndPointValid
+       v{_localEndPointMulticastGroups = Map.delete addr (_localEndPointMulticastGroups v)}
+
+apiMulticastSendLocal :: (ZMQ.Sender a) => ZMQMulticastGroup -> ZMQ.Socket a -> [ByteString] -> IO ()
+apiMulticastSendLocal mgroup sock msg = withMVar (multicastGroupState mgroup) $ \case
+  MulticastGroupClosed -> return ()
+  MulticastGroupValid _ -> do
+      ZMQ.sendMulti sock $ "" :| msg
+
+apiMulticastSendRemote :: (ZMQ.Sender a, ZMQ.Receiver a) => ZMQMulticastGroup -> ZMQ.Socket a -> [ByteString] -> IO ()
+apiMulticastSendRemote _ _ [] = return ()
+apiMulticastSendRemote mgroup sock (m:msg) = withMVar (multicastGroupState mgroup) $ \case
+  MulticastGroupClosed -> return ()
+  MulticastGroupValid _ -> do
+      ZMQ.sendMulti sock $ m :| msg
+      "OK" <- ZMQ.receive sock -- XXX: timeout
+      return ()
+
+apiMulticastSubscribe :: ZMQMulticastGroup -> IO ()
+apiMulticastSubscribe mgroup = withMVar (multicastGroupState mgroup) $ \case
+  MulticastGroupClosed -> return ()
+  MulticastGroupValid v -> do
+    modifyIORef (_multicastGroupSubscribed v) (const True)
+
+apiMulticastUnsubscribe :: ZMQMulticastGroup -> IO ()
+apiMulticastUnsubscribe mgroup = withMVar (multicastGroupState mgroup) $ \case
+  MulticastGroupClosed -> return ()
+  MulticastGroupValid v -> modifyIORef (_multicastGroupSubscribed v) (const False)
+
+apiMulticastClose :: IO ()
+apiMulticastClose = return () 
+
+extractRepAddress :: MulticastAddress -> ByteString
+extractRepAddress (MulticastAddress bs) = B8.concat [a,":",p]
+  where
+    (x,p) = B8.spanEnd (/=':') bs
+    a     = B8.init . fst . B8.spanEnd (/=':') . B8.init $ x
+extractPubAddress :: MulticastAddress -> ByteString
+extractPubAddress (MulticastAddress bs) = B8.init . fst $ B8.spanEnd (/=':') bs
+
+repeatWhile :: Monad m => (m Bool) -> m ()
+repeatWhile f = f >>= \x -> if x then repeatWhile f else return ()
