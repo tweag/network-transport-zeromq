@@ -9,6 +9,7 @@ module Network.Transport.ZMQ
   -- $internals
   , createTransportEx
   , breakConnection
+  , unsafeConfigurePush
   -- * Design
   -- $design
   -- ** Multicast
@@ -922,16 +923,12 @@ unsafeConfigurePush :: ZMQTransport
                     -> (ZMQ.Socket ZMQ.Push -> IO ())
                     -> IO ()
 unsafeConfigurePush zmqt from to f = withMVar (_transportState zmqt) $ \case
-    TransportValid v -> case f `Map.lookup` _transportEndPoints v of
+    TransportValid v -> case from `Map.lookup` _transportEndPoints v of
       Nothing -> return ()
       Just x  -> withMVar (localEndPointState x) $ \case
-        LocalEndPointValid w -> case t `Map.lookup` _localEndPointRemotes w of
+        LocalEndPointValid w -> case to `Map.lookup` _localEndPointRemotes w of
           Nothing -> return ()
-          Just y  -> do
-              mz <- cleanupRemoteEndPoint x y Nothing
-              case mz of
-                Nothing -> return ()
-                Just z  -> onValidEndPoint x $ f (_remoteEndPointChan x)
+          Just y  -> onValidRemote y $ f . _remoteEndPointChan
         LocalEndPointClosed   -> return ()
     TransportClosed -> return ()
 
