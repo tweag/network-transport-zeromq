@@ -60,7 +60,11 @@ main = finish <=< trySome $ do
     Right _   <- send c4 ["5567"]
     print <=< replicateM 2 $ receive ep4
 
-
+    putStrLn "test no host"
+    er <- connect ep3 (EndPointAddress "tcp://128.0.0.1:7689") ReliableOrdered defaultConnectHints
+    case er of
+      Right c -> error "connection created"
+      Left  e -> print e
   where
     finish (Left e) = print e >> exitWith (ExitFailure 1)
     finish Right{} = exitWith ExitSuccess
