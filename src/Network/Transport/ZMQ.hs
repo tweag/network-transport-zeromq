@@ -8,7 +8,8 @@ module Network.Transport.ZMQ
   -- * Internals
   -- $internals
   , createTransportEx
-  , breakConnection
+  , breakConnectionEndPoint -- :: ZMQTransport -> EndPointAddress -> EndPointAddress -> IO ()
+  , breakConnection         -- :: ZMQTransport -> EndPointAddress -> EndPointAddress -> IO ()
   , unsafeConfigurePush
   -- * Design
   -- $design
@@ -35,6 +36,7 @@ import           Control.Monad
       , forM_
       , foldM
       , when
+      , (<=<)
       )
 import           Control.Exception 
       ( AsyncException )
@@ -54,6 +56,7 @@ import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as B8
+import           Data.Foldable ( traverse_ )
 import qualified Data.Foldable as Foldable
 import           Data.IORef
       ( newIORef
@@ -65,8 +68,8 @@ import           Data.List.NonEmpty
 import qualified Data.Map.Strict as Map
 -- import           Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Traversable as Traversable
 import           Data.Typeable
-import           Data.Traversable
 import           Data.Void
 import           GHC.Generics
       ( Generic )
@@ -783,7 +786,7 @@ cleanupRemoteEndPoint lep rep actions = modifyMVar (localEndPointState lep) $ \c
       case oldState of
         RemoteEndPointValid w -> do
           let (Counter _ cn) = _remoteEndPointPendingConnections w
-          void $ traverse (\c -> void $ swapMVar (connectionState c) ZMQConnectionFailed) cn
+          traverse_ (\c -> void $ swapMVar (connectionState c) ZMQConnectionFailed) cn
           cn' <- foldM 
                (\(Counter i' cn') idx -> case idx `Map.lookup` cn of
                    Nothing -> return (Counter i' cn')  
@@ -846,7 +849,7 @@ remoteEndPointClose silent lep rep = do
        LocalEndPointClosed -> return ()
        LocalEndPointValid v -> do
          -- notify about all connections close (?) do we really want it?
-         void $ traverse (atomically . writeTMChan (_localEndPointChan v) . ConnectionClosed) (Set.toList s)
+         traverse_ (atomically . writeTMChan (_localEndPointChan v) . ConnectionClosed) (Set.toList s)
          -- if we have outgoing connections, then we have connection error
          when (i > 0) $ atomically
                       $ writeTMChan (_localEndPointChan v)
@@ -893,12 +896,36 @@ trySome f = try f >>= \case
     Nothing -> return $ Left e
   Right x -> return $ Right x
 
--- | Break endpoint connection.
+-- | Break endpoint connection, all endpoints that will be affected.
 breakConnection :: ZMQTransport
                 -> EndPointAddress
                 -> EndPointAddress
                 -> IO ()
-breakConnection zmqt from to = one from to >> one to from 
+breakConnection zmqt from to = Foldable.sequence_ <=<  withMVar (_transportState zmqt) $ \case
+    TransportValid v -> Traversable.forM (_transportEndPoints v) $ \x ->
+      withMVar (localEndPointState x) $ \case
+        LocalEndPointValid w -> return $ Foldable.sequence_ $ flip Map.mapWithKey (_localEndPointRemotes w) $ \key rep ->
+          if onDeadHost key
+          then do
+            mz <- cleanupRemoteEndPoint x rep Nothing
+            flip traverse_ mz $ \z -> do
+              onValidEndPoint x $ \j -> atomically $ writeTMChan (_localEndPointChan j) $
+                ErrorEvent $ TransportError (EventConnectionLost to) "Manual connection break"
+              closeRemoteEndPoint x rep z
+          else return ()
+        LocalEndPointClosed -> afterP ()
+    TransportClosed -> return Map.empty
+  where
+    dh = B8.init . fst $ B8.spanEnd (/=':') (endPointAddressToByteString to)
+    onDeadHost = B8.isPrefixOf dh . endPointAddressToByteString
+
+-- | Break connection between two endpoints, other endpoints on the same
+-- remove will not be affected.
+breakConnectionEndPoint :: ZMQTransport
+                        -> EndPointAddress
+                        -> EndPointAddress
+                        -> IO ()
+breakConnectionEndPoint zmqt from to = one from to >> one to from
   where
     one f t = join $ withMVar (_transportState zmqt) $ \case
       TransportValid v -> case f `Map.lookup` _transportEndPoints v of
