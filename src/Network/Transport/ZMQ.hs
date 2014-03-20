@@ -749,7 +749,7 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
          ZMQ.connect push (B8.unpack $ endPointAddressToByteString theirAddr)
       monitor <- ZMQ.monitor [ZMQ.ConnectedEvent] ctx push
       putMVar lock ()
-      r <- Async.race (threadDelay 1000000) (monitor True)
+      r <- Async.race (threadDelay 100000) (monitor True)
       void $ monitor False
       case r of
         Left _ -> do
