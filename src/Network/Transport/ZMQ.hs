@@ -337,7 +337,7 @@ apiNewEndPoint params transport = do
 -- | Asynchronous operation, shutdown of the remote end point may take a while
 apiCloseEndPoint :: ZMQTransport
                  -> LocalEndPoint
-		 -> IO ()
+                 -> IO ()
 apiCloseEndPoint transport lep = do
 --    printf "[%s][go] close endpoint\n"
 --           (B8.unpack $ endPointAddressToByteString $ _localEndPointAddress lep)
@@ -361,7 +361,16 @@ endPointCreate :: ZMQParameters
                -> String
                -> IO (Either (TransportError NewEndPointErrorCode) (Int,LocalEndPoint, TMChan Event))
 endPointCreate params ctx addr = do
-    em <- try $ accure
+    em <- try $ do 
+      pull <- ZMQ.socket ctx ZMQ.Pull
+      case authorizationType params of
+          ZMQNoAuth -> return ()
+          ZMQAuthPlain{} -> do
+              ZMQ.setPlainServer True pull
+      ZMQ.setSendHighWM (ZMQ.restrict (highWaterMark params)) pull
+      ZMQ.setLinger (ZMQ.restrict (lingerPeriod params)) pull
+      port <- ZMQ.bindFromRangeRandom pull addr (minPort params) (maxPort params) (maxTries params)
+      return (port, pull)
     case em of
       Right (port, pull) -> do
           chOut <- newTMChanIO
@@ -557,16 +566,6 @@ endPointCreate params ctx addr = do
             ZMQ.unbind pull (addr ++ ":" ++ show port)
             ZMQ.close pull
       void $ swapMVar (localEndPointState ourEp) LocalEndPointClosed
-    accure = do
-      pull <- ZMQ.socket ctx ZMQ.Pull
-      case authorizationType params of
-          ZMQNoAuth -> return ()
-          ZMQAuthPlain{} -> do
-              ZMQ.setPlainServer True pull
-      ZMQ.setSendHighWM (ZMQ.restrict (highWaterMark params)) pull
-      ZMQ.setLinger (ZMQ.restrict (lingerPeriod params)) pull
-      port <- ZMQ.bindFromRangeRandom pull addr (minPort params) (maxPort params) (maxTries params)
-      return (port, pull)
 
 apiSend :: ZMQConnection -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
 apiSend (ZMQConnection l e _ s _) b = do 
