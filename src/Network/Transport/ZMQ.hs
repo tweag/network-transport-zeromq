@@ -47,6 +47,7 @@ import           Control.Monad.Catch
       , fromException
       , mask
       , mask_
+      , onException
       )
 import           Data.Binary
 import           Data.ByteString (ByteString)
@@ -372,18 +373,19 @@ endPointCreate params ctx addr = do
       port <- ZMQ.bindFromRangeRandom pull addr (minPort params) (maxPort params) (maxTries params)
       return (port, pull)
     case em of
-      Right (port, pull) -> do
+      Right (port, pull) -> (do
           chOut <- newTMChanIO
           lep   <- LocalEndPoint <$> pure (EndPointAddress $ B8.pack (addr ++ ":" ++ show port))
                                  <*> newEmptyMVar
                                  <*> pure port
           opened <- newIORef True
-          thread <- mask $ \restore ->
-             Async.async $ (restore (receiver pull lep chOut)) 
-                           `finally` finalizeEndPoint lep port pull
-          putMVar (localEndPointState lep) $ LocalEndPointValid 
-            (ValidLocalEndPoint chOut (Counter 0 Map.empty) Map.empty thread opened Map.empty)
-          return $ Right (port, lep, chOut)
+          mask $ \restore -> do
+              thread <- Async.async $ (restore (receiver pull lep chOut)) 
+                               `finally` finalizeEndPoint lep port pull
+              putMVar (localEndPointState lep) $ LocalEndPointValid 
+                (ValidLocalEndPoint chOut (Counter 0 Map.empty) Map.empty thread opened Map.empty)
+              return $ Right (port, lep, chOut))
+          `onException` (ZMQ.close pull)
       Left (_e::SomeException)  -> do
           return $ Left $ TransportError NewEndPointInsufficientResources "no free sockets"
   where
