@@ -46,7 +46,10 @@ main = finish <=< trySome $ do
 
     Left (TransportError SendFailed _) <- send c23 ["test"]
     ErrorEvent (TransportError (EventConnectionLost _) _ ) <- receive ep1
-    -- Received 3 ["test"] <- receive ep1
+    Right c24 <- connect ep3 (address ep1) ReliableOrdered defaultConnectHints
+    Right ()  <- send c24 ["final"]
+    ConnectionOpened 4 ReliableOrdered _ <- receive ep1
+    Received 4 ["final"] <- receive ep1
     putStrLn "OK"
     multicast transport
   where
