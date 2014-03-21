@@ -17,6 +17,7 @@ Transport.ps: h-tcp.data \
               n-t-zmq.data \
               c-tcp.data \
               c-zmq.data \
+			  c-zmq-rr.data \
               Transport.gnuplot
 	gnuplot ./Transport.gnuplot
 
@@ -35,6 +36,9 @@ c-zmq.exe: c-zmq.c
 
 c-tcp.exe: c-tcp.c
 	$(GCC) -O2 -o c-tcp.exe c-tcp.c
+
+c-zmq-rr.exe: c-zmq-rr.c
+	$(GCC) -O2 -o c-zmq-rr.exe c-zmq-rr.c -lzmq
 
 JustPingHaskellNT.exe: JustPingHaskell.hs
 	$(GHC) -O2 $(PROF_GHC) -o JustPingHaskellNT.exe JustPingHaskell.hs

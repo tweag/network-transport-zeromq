@@ -4,4 +4,7 @@ set terminal postscript color
 set output "Transport.ps"
 plot "n-t-zmq.data" smooth bezier with lines title "NT ZMQ", \
      "h-tcp.data" smooth bezier with lines title "Haskell TCP", \
-     "c-tcp.data" smooth bezier with lines title "c-tcp"
+     "c-tcp.data" smooth bezier with lines title "c-tcp", \
+     "c-zmq-rr.data" smooth bezier with lines title "c-zmq-rr", \
+     "c-zmq.data" smooth bezier with lines title "c-zmq"
+     
