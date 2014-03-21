@@ -1,3 +1,7 @@
+-- |
+-- Module:    Network.Transport.ZMQ
+-- Copyright: (C) 2014, EURL Tweag
+-- License:   BSD-3
 {-# LANGUAGE DeriveGeneric, StandaloneDeriving, OverloadedStrings, DeriveDataTypeable #-}
 module Network.Transport.ZMQ
   ( -- * Main API

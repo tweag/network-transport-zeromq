@@ -1,3 +1,8 @@
+-- |
+-- Module:     Network.Transport.ZMQ.Types
+-- Copyright:  (C) 2014, EURL Tweag
+-- Licese:     BSD-3
+--
 {-# LANGUAGE LambdaCase #-}
 module Network.Transport.ZMQ.Types
     ( ZMQParameters(..)
