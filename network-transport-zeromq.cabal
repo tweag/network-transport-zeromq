@@ -18,6 +18,10 @@ flag benchmarks
   description: build benchmarks
   default:     False
 
+flag unsafe-constructs
+  description: use faster primitives, but it will introduce undefined behaviour on some usecases
+  default:     False
+
 library
   build-depends:      base >=4.6 && < 4.8,
                       binary >= 0.6,
@@ -38,6 +42,8 @@ library
   other-modules:      System.ZMQ4.Utils
   hs-source-dirs:     src
   ghc-options:        -Wall
+  if flag(unsafe-constructs)
+    ghc-options:      -DUNSAFE_SEND
   default-extensions: DeriveGeneric
                       DeriveDataTypeable
                       OverloadedStrings
@@ -45,6 +51,7 @@ library
                       ScopedTypeVariables
                       StandaloneDeriving
   default-language:   Haskell2010
+
 
 Test-Suite test-zeromq
   type:               exitcode-stdio-1.0

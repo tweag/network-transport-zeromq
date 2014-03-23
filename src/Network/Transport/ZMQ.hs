@@ -2,7 +2,7 @@
 -- Module:    Network.Transport.ZMQ
 -- Copyright: (C) 2014, EURL Tweag
 -- License:   BSD-3
-{-# LANGUAGE DeriveGeneric, StandaloneDeriving, OverloadedStrings, DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric, StandaloneDeriving, OverloadedStrings, DeriveDataTypeable, CPP #-}
 module Network.Transport.ZMQ
   ( -- * Main API
     createTransport       -- :: ZMQParameters -> ByteString -> IO (Either ZMQError Transport)
@@ -577,30 +577,7 @@ endPointCreate params ctx addr = do
       void $ swapMVar (localEndPointState ourEp) LocalEndPointClosed
 
 apiSend :: ZMQConnection -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
-apiSend c@(ZMQConnection l e _ s _) b = join $ withMVar s $ \case
-    ZMQConnectionInit   -> return $ yield >> apiSend c b 
-    ZMQConnectionClosed -> afterP $ Left $ TransportError SendClosed "Connection is closed"
-    ZMQConnectionFailed -> afterP $ Left $ TransportError SendFailed "Connection is failed"
-    ZMQConnectionValid (ValidZMQConnection (Just ch) idx) -> do
-      o <-  readIORef (remoteEndPointOpened e)
-      if o
-      then do
-         evs <- ZMQ.events ch
-         if ZMQ.Out `elem` evs
-         then do ZMQ.sendMulti ch $ encode' (MessageData idx) :| b
-                 afterP $ Right ()
-         else return $ do
-            mz <- cleanupRemoteEndPoint l e Nothing
-            case mz of
-              Nothing -> return ()
-              Just z  -> do
-                onValidEndPoint l $ \v -> atomically $ writeTMChan (_localEndPointChan v) $
-                   ErrorEvent $ TransportError (EventConnectionLost (remoteEndPointAddress e)) "Exception on remote side"
-                closeRemoteEndPoint l e z
-            return $ Left $ TransportError SendFailed "Connection broken."
-      else afterP $ Left $ TransportError SendFailed "Connection broken."
-    _ -> afterP $ Left $ TransportError SendFailed "Incorrect channel."
-{-
+#ifdef SAFE_SEND
 apiSend (ZMQConnection l e _ s _) b = do 
    result <- trySome inner
    case result of
@@ -638,7 +615,31 @@ apiSend (ZMQConnection l e _ s _) b = do
      onValidEndPoint l $ \v -> atomically $ do
        writeTMChan (_localEndPointChan v) $ ErrorEvent $ TransportError
                    (EventConnectionLost (remoteEndPointAddress e)) "Exception on send."
--}
+#else
+apiSend c@(ZMQConnection l e _ s _) b = join $ withMVar s $ \case
+    ZMQConnectionInit   -> return $ yield >> apiSend c b 
+    ZMQConnectionClosed -> afterP $ Left $ TransportError SendClosed "Connection is closed"
+    ZMQConnectionFailed -> afterP $ Left $ TransportError SendFailed "Connection is failed"
+    ZMQConnectionValid (ValidZMQConnection (Just ch) idx) -> do
+      o <-  readIORef (remoteEndPointOpened e)
+      if o
+      then do
+         evs <- ZMQ.events ch
+         if ZMQ.Out `elem` evs
+         then do ZMQ.sendMulti ch $ encode' (MessageData idx) :| b
+                 afterP $ Right ()
+         else return $ do
+            mz <- cleanupRemoteEndPoint l e Nothing
+            case mz of
+              Nothing -> return ()
+              Just z  -> do
+                onValidEndPoint l $ \v -> atomically $ writeTMChan (_localEndPointChan v) $
+                   ErrorEvent $ TransportError (EventConnectionLost (remoteEndPointAddress e)) "Exception on remote side"
+                closeRemoteEndPoint l e z
+            return $ Left $ TransportError SendFailed "Connection broken."
+      else afterP $ Left $ TransportError SendFailed "Connection broken."
+    _ -> afterP $ Left $ TransportError SendFailed "Incorrect channel."
+#endif
 
 
 -- 'apiClose' function is asynchronous, as connection may not exists by the
