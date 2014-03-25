@@ -32,7 +32,7 @@ testTransport' newTransport = do
     , ("CloseTransport",        testCloseTransport newTransport)
     , ("ExceptionOnReceive",    testExceptionOnReceive newTransport)
     , ("SendException",         testSendException newTransport)
-    , ("Kill",                  testKill newTransport 10)
+    , ("Kill",                  testKill newTransport 500)
     ]
   where
     numPings = 10000 :: Int
