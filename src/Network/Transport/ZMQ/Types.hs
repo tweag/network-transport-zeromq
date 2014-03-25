@@ -61,7 +61,6 @@ import qualified System.ZMQ4 as ZMQ
 -- | Parameters for ZeroMQ connection
 data ZMQParameters = ZMQParameters
       { highWaterMark :: Word64 -- uint64_t
-      , lingerPeriod  :: Int    -- int
       , authorizationType :: ZMQAuthType
       , minPort       :: Int
       , maxPort       :: Int
@@ -72,7 +71,6 @@ data ZMQParameters = ZMQParameters
 defaultZMQParameters :: ZMQParameters
 defaultZMQParameters = ZMQParameters
       { highWaterMark = 0
-      , lingerPeriod  = 0
       , authorizationType = ZMQNoAuth
       , minPort       = 2000
       , maxPort       = 60000

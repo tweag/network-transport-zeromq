@@ -791,7 +791,7 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
         Left _ -> do
           _ <- swapMVar (remoteEndPointState rep) RemoteEndPointFailed
           Async.cancel x
-          ZMQ.close push
+          closeZeroLinger push
         Right _ -> do
           ZMQ.send push [] $ encode' $ MessageConnect ourAddr
           let v = ValidRemoteEndPoint push (Counter 0 Map.empty) Set.empty 0
@@ -850,11 +850,11 @@ closeRemoteEndPoint lep rep state = step1 >> step2 state
      c -> return c
    step2 (RemoteEndPointValid v) = do
       ZMQ.disconnect (_remoteEndPointChan v) (B8.unpack . endPointAddressToByteString $ remoteEndPointAddress rep)
-      ZMQ.close (_remoteEndPointChan v)
+      closeZeroLinger (_remoteEndPointChan v)
    step2 (RemoteEndPointClosing (ClosingRemoteEndPoint sock rd)) = do
      _ <- readMVar rd
      ZMQ.disconnect sock (B8.unpack . endPointAddressToByteString $ remoteEndPointAddress rep)
-     ZMQ.close sock
+     closeZeroLinger sock
    step2 _ = return ()
 
 
