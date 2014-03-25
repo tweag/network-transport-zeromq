@@ -3,6 +3,7 @@ module System.ZMQ4.Utils
   ( bindFromRangeRandom
   , bindFromRangeRandomM
   , authManager
+  , closeZeroLinger
   )
   where
 
@@ -78,3 +79,9 @@ authManager ctx user pass = do
            _ -> P.sendMulti req $ "1.0" :| [requestId, "500", "Method not implemented", "", ""]
         _ -> P.sendMulti req $ "1.0" :| [requestId, "500", "Method not implemented", "", ""]
 
+
+-- | Close socket immideately.
+closeZeroLinger :: P.Socket a -> IO ()
+closeZeroLinger sock = do
+  P.setLinger (P.restrict 0) sock
+  P.close sock
