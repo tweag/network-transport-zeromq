@@ -11,7 +11,12 @@ INCLUDES=-i${ROOT}/network-transport/src -i${ROOT}/network-transport-zeromq/src
 GCC=gcc 
 GHC=ghc -rtsopts -XRankNTypes -XScopedTypeVariables -XDeriveDataTypeable -XCPP -XGeneralizedNewtypeDeriving -XLambdaCase -optP-include -optPcabal_macros.h -hide-package stateref
 
-all: Transport.ps Indirection.ps
+all: Transport.ps Indirection.ps Throughput.ps
+
+Throughput.ps: c-zmq-throughput.data \
+	  		   c-tcp-throughput.data \
+			   Throughput.gnuplot
+	gnuplot ./Throughput.gnuplot
 
 Transport.ps: h-tcp.data \
               n-t-zmq.data \
@@ -34,14 +39,28 @@ Indirection.ps: c-zmq.data \
 c-zmq.exe: c-zmq.c
 	$(GCC) -O2 -o c-zmq.exe c-zmq.c -lzmq
 
-c-tcp.exe: c-tcp.c
-	$(GCC) -O2 -o c-tcp.exe c-tcp.c
+c-zmq-throughput.exe: c-zmq-throughput.c
+	$(GCC) -O2 -o c-zmq-throughput.exe c-zmq-throughput.c -lzmq
 
 c-zmq-rr.exe: c-zmq-rr.c
 	$(GCC) -O2 -o c-zmq-rr.exe c-zmq-rr.c -lzmq
 
+c-tcp.exe: c-tcp.c
+	$(GCC) -O2 -o c-tcp.exe c-tcp.c
+
+c-tcp-throughput.exe: c-tcp-throughput.c
+	$(GCC) -O2 -o c-tcp-throughput.exe c-tcp-throughput.c
+
 JustPingHaskellNT.exe: JustPingHaskell.hs
 	$(GHC) -O2 $(PROF_GHC) -o JustPingHaskellNT.exe JustPingHaskell.hs
+
+c-tcp-throughput.data: c-tcp-throughput.exe\
+					   prepare-data.sh
+	./prepare-data.sh $<
+
+c-zmq-throughput.data: c-zmq-throughput.exe\
+					   prepare-data.sh
+	./prepare-data.sh $<
 
 %.data : %.exe
 	time ./$< $(NUMPINGS) $(PROF_EXE) 2>$@
