@@ -53,6 +53,7 @@ import           Control.Monad.Catch
       , fromException
       , mask
       , mask_
+      , uninterruptibleMask_
       , onException
       )
 import           Data.Binary
@@ -87,7 +88,7 @@ import           System.ZMQ4
 import qualified System.ZMQ4 as ZMQ
 import qualified System.ZMQ4.Utils   as ZMQ
 
--- import Text.Printf
+import Text.Printf
 
 --------------------------------------------------------------------------------
 --- Internal datatypes                                                        --
@@ -301,7 +302,7 @@ createTransportEx params host = do
 
 -- Synchronous
 apiTransportClose :: ZMQTransport -> IO ()
-apiTransportClose transport = do
+apiTransportClose transport = mask_ $ do
     old <- swapMVar (_transportState transport) TransportClosed
     case old of
       TransportClosed -> return ()
@@ -481,10 +482,9 @@ endPointCreate params ctx addr = do
               return $ RemoteEndPointValid
                 v{_remoteEndPointIncommingConnections = Set.insert i s}
         MessageCloseConnection idx -> join $ do
---          printf "[%s] message init connection: %i\n"
+--          printf "[%s] message close connection: %i\n"
 --                 (B8.unpack $ endPointAddressToByteString ourAddr)
 --                 idx
---                 
           modifyMVar (localEndPointState ourEp) $ \case
             LocalEndPointValid v ->
                 case idx `Map.lookup` m of
@@ -518,7 +518,7 @@ endPointCreate params ctx addr = do
                     t@(RemoteEndPointValid (ValidRemoteEndPoint sock (Counter x m) s z)) -> do
                       case ourId `Map.lookup` m of
                           Nothing -> return (t, return ())     -- XXX: send message to the hostv
-                          Just c  -> do
+                          Just c  -> mask_ $ do
                             return (RemoteEndPointValid (ValidRemoteEndPoint sock (Counter x (ourId `Map.delete` m)) s (z+1))
                                    , do 
                                         modifyMVar_ (connectionState c) $ \case
@@ -526,7 +526,6 @@ endPointCreate params ctx addr = do
                                           ZMQConnectionInit -> return $ ZMQConnectionValid (ValidZMQConnection (Just sock) theirId)
                                           ZMQConnectionClosed -> do
                                               ZMQ.send sock [] $ encode' (MessageCloseConnection theirId)
-                                              -- decrement value
                                               return ZMQConnectionClosed
                                           ZMQConnectionValid _ -> throwM $ InvariantViolation "RemoteEndPoint should be closed"
                                         void $ tryPutMVar (connectionReady c) ()
@@ -648,7 +647,7 @@ apiSend (ZMQConnection l e _ s _) b = mask_ $ do
 -- "think" that the connection is closed, and remote side will be contified
 -- only after connection will be up.
 apiClose :: ZMQConnection -> IO ()
-apiClose (ZMQConnection _ e _ s _) = mask_ $ join $ do
+apiClose (ZMQConnection _ e _ s _) = uninterruptibleMask_ $ join $ do
    modifyMVar s $ \case
      ZMQConnectionInit   -> return (ZMQConnectionClosed, return ())
      ZMQConnectionClosed -> return (ZMQConnectionClosed, return ())
