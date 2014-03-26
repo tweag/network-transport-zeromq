@@ -376,7 +376,6 @@ endPointCreate params ctx addr = do
           ZMQAuthPlain{} -> do
               ZMQ.setPlainServer True pull
       ZMQ.setSendHighWM (ZMQ.restrict (highWaterMark params)) pull
-      ZMQ.setLinger (ZMQ.restrict (lingerPeriod params)) pull
       port <- ZMQ.bindFromRangeRandom pull addr (minPort params) (maxPort params) (maxTries params)
       return (port, pull)
     case em of
@@ -791,7 +790,7 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
         Left _ -> do
           _ <- swapMVar (remoteEndPointState rep) RemoteEndPointFailed
           Async.cancel x
-          closeZeroLinger push
+          ZMQ.closeZeroLinger push
         Right _ -> do
           ZMQ.send push [] $ encode' $ MessageConnect ourAddr
           let v = ValidRemoteEndPoint push (Counter 0 Map.empty) Set.empty 0
@@ -849,12 +848,10 @@ closeRemoteEndPoint lep rep state = step1 >> step2 state
                                (_localEndPointRemotes v)}
      c -> return c
    step2 (RemoteEndPointValid v) = do
-      ZMQ.disconnect (_remoteEndPointChan v) (B8.unpack . endPointAddressToByteString $ remoteEndPointAddress rep)
-      closeZeroLinger (_remoteEndPointChan v)
+      ZMQ.closeZeroLinger (_remoteEndPointChan v)
    step2 (RemoteEndPointClosing (ClosingRemoteEndPoint sock rd)) = do
      _ <- readMVar rd
-     ZMQ.disconnect sock (B8.unpack . endPointAddressToByteString $ remoteEndPointAddress rep)
-     closeZeroLinger sock
+     ZMQ.closeZeroLinger sock
    step2 _ = return ()
 
 
@@ -1108,10 +1105,10 @@ apiDeleteMulticastGroupRemote mstate lep addr req reqAddr sub subAddr mtid = mas
     MulticastGroupClosed -> return MulticastGroupClosed
     MulticastGroupValid v -> do
       modifyIORef (_multicastGroupSubscribed v) (const False)
-      ZMQ.disconnect req (B8.unpack reqAddr)
+--      ZMQ.disconnect req (B8.unpack reqAddr)
       ZMQ.close req
       ZMQ.unsubscribe sub ""
-      ZMQ.disconnect sub (B8.unpack subAddr)
+--      ZMQ.disconnect sub (B8.unpack subAddr)
       ZMQ.close sub
       return MulticastGroupClosed
   modifyMVar_ (localEndPointState lep) $ \case
@@ -1135,7 +1132,7 @@ apiDeleteMulticastGroupLocal mstate lep addr rep repAddr pub sub pubAddr mtid wr
        ZMQ.unbind rep (B8.unpack repAddr)
        ZMQ.close rep
        ZMQ.unsubscribe sub ""
-       ZMQ.disconnect sub (B8.unpack pubAddr)
+--       ZMQ.disconnect sub (B8.unpack pubAddr)
        ZMQ.close sub
        ZMQ.unbind pub (B8.unpack pubAddr)
        ZMQ.close pub
