@@ -937,8 +937,8 @@ breakConnection zmqt from to = Foldable.sequence_ <=<  withMVar (_transportState
           then do
             mz <- cleanupRemoteEndPoint x rep Nothing
             flip traverse_ mz $ \z -> do
-              onValidEndPoint x $ \j -> atomically $ writeTMChan (_localEndPointChan j) $
-                ErrorEvent $ TransportError (EventConnectionLost to) "Manual connection break"
+              atomically $ writeTMChan (_localEndPointChan w) $
+                ErrorEvent $ TransportError (EventConnectionLost key) "Manual connection break"
               closeRemoteEndPoint x rep z
           else return ()
         LocalEndPointClosed -> afterP ()
