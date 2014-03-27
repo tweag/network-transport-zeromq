@@ -29,7 +29,7 @@ int server(int pings, int size) {
   hints.ai_socktype = SOCK_STREAM;
   hints.ai_flags    = AI_PASSIVE;
 
-  error = getaddrinfo(NULL, "8080", &hints, &res); 
+  error = getaddrinfo(NULL, "8079", &hints, &res); 
   if(error) {
     printf("server error: %s\n", gai_strerror(error));
     return -1;
@@ -84,7 +84,7 @@ int client(int pings, int size) {
   hints.ai_family   = PF_INET;
   hints.ai_socktype = SOCK_STREAM;
 
-  error = getaddrinfo("127.0.0.1", "8080", &hints, &res); 
+  error = getaddrinfo("127.0.0.1", "8079", &hints, &res); 
   if(error) {
     printf("client error: %s\n", gai_strerror(error));
     return -1;
@@ -98,10 +98,19 @@ int client(int pings, int size) {
 
   if(connect(client_socket, res->ai_addr, res->ai_addrlen) < 0) {
     printf("client error: could not connect: %s\n", strerror(errno));
-    return -1;
+    sleep(1);
+    if(connect(client_socket, res->ai_addr, res->ai_addrlen) < 0) {
+      if(connect(client_socket, res->ai_addr, res->ai_addrlen) < 0) {
+        printf("client error: could not connect: %s\n", strerror(errno));
+        return -1;
+      }
+    }
   }
 
   char * msg = malloc(size);
+  for (i=0;i < size; i++) {
+      msg[i] = i;
+  }
   double timestamp_before = timestamp();
   for(i = 0; i < pings; i++) {
     int sent=0;
@@ -111,8 +120,16 @@ int client(int pings, int size) {
 
   size_t read = 0;
   for (;sizeof(int)-read;) read+=recv(client_socket, msg, sizeof(int)-read, 0);
+
   double timestamp_after = timestamp();
-  fprintf(stderr, "%i %lf\n", size, timestamp_after - timestamp_before);
+  double elapsed = timestamp_after - timestamp_before;
+
+  unsigned long throughput = (unsigned long) 
+    ((double) pings / (double) elapsed * 1000000);
+  double megabits = (double) (throughput * size * 8) / 1000000;
+
+  // size, throughput [msg/s], throughput [Mb/s]
+  fprintf (stderr, "%d %lf %d %.3f\n", (int) size, elapsed, (int)throughput, (double) megabits);
   printf("client did %d pings\n", pings);
 
   freeaddrinfo(res);

@@ -2,27 +2,30 @@
 
 NUMPINGS=100000
 ROOT=../../..
-INCLUDES=-i${ROOT}/network-transport/src -i${ROOT}/network-transport-zeromq/src
+INCLUDES=-i${ROOT}/network-transport/src -i${ROOT}/network-transport-zeromq/src -i${ROOT}/network-transport-tcp/src
 
 # Enable for profiling
 # PROF_GHC=-prof -fprof-auto
 # PROF_EXE=+RTS -pa -RTS
 
-GCC=gcc 
-GHC=ghc -rtsopts -XRankNTypes -XScopedTypeVariables -XDeriveDataTypeable -XCPP -XGeneralizedNewtypeDeriving -XLambdaCase -optP-include -optPcabal_macros.h -hide-package stateref
+GCC=gcc
+GHC=ghc -rtsopts -XRankNTypes -XScopedTypeVariables -XDeriveDataTypeable -XCPP -XGeneralizedNewtypeDeriving -XLambdaCase -optP-include -optPcabal_macros.h -hide-package stateref  -DUNSAFE_SEND
 
 all: Transport.ps Indirection.ps Throughput.ps
 
 Throughput.ps: c-zmq-throughput.data \
+			   c-zmq-throughput-2.data \
 	  		   c-tcp-throughput.data \
 			   Throughput.gnuplot
 	gnuplot ./Throughput.gnuplot
+#	  		   c-zmq-throughput-rr.data \
 
 Transport.ps: h-tcp.data \
               n-t-zmq.data \
               c-tcp.data \
               c-zmq.data \
 			  c-zmq-rr.data \
+			  n-t-tcp.data \
               Transport.gnuplot
 	gnuplot ./Transport.gnuplot
 
@@ -42,6 +45,9 @@ c-zmq.exe: c-zmq.c
 c-zmq-throughput.exe: c-zmq-throughput.c
 	$(GCC) -O2 -o c-zmq-throughput.exe c-zmq-throughput.c -lzmq
 
+c-zmq-throughput-rr.exe: c-zmq-throughput-rr.c
+	$(GCC) -O2 -o c-zmq-throughput-rr.exe c-zmq-throughput-rr.c -lzmq
+
 c-zmq-rr.exe: c-zmq-rr.c
 	$(GCC) -O2 -o c-zmq-rr.exe c-zmq-rr.c -lzmq
 
@@ -60,6 +66,13 @@ c-tcp-throughput.data: c-tcp-throughput.exe\
 
 c-zmq-throughput.data: c-zmq-throughput.exe\
 					   prepare-data.sh
+	./prepare-data.sh $<
+
+c-zmq-throughput-2.data: prepare-data-2.sh
+	./prepare-data-2.sh $<
+
+c-zmq-throughput-rr.data: c-zmq-throughput-rr.exe\
+	   				      prepare-data.sh
 	./prepare-data.sh $<
 
 %.data : %.exe

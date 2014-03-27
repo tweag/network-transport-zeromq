@@ -22,18 +22,18 @@ int server(void *ctx, int pings, int size) {
   printf("starting server\n");
   int rc = 0;
 
-  void *pull = zmq_socket(ctx, ZMQ_PULL);
+  void *pull = zmq_socket(ctx, ZMQ_REP);
   rc = zmq_bind(pull, "tcp://127.0.0.1:5876");
 
-  void *push = zmq_socket(ctx, ZMQ_PUSH);
+  void *push = zmq_socket(ctx, ZMQ_REQ);
   rc = zmq_connect(push, "tcp://127.0.0.1:5877");
 
   int counter = 0, i = 0;
   for(i=0;i<pings;i++) {
     char* buf = malloc(size);
-    int read = zmq_recv(pull, buf, size, 0);
+    zmq_recv(pull, buf, size, 0);
+    zmq_send(pull,"",0,0);
     counter++;
-    // printf("server received '%s'\n", buf);
     free(buf);
   }
   zmq_send(push, &counter, sizeof(int), 0);
@@ -44,34 +44,26 @@ int client(void *ctx, int pings, int size) {
   int rc = 0;
   printf("starting client\n");
   
-  void *pull = zmq_socket(ctx, ZMQ_PULL);
+  void *pull = zmq_socket(ctx, ZMQ_REP);
   rc = zmq_bind(pull, "tcp://127.0.0.1:5877");
 
-  void *push = zmq_socket(ctx, ZMQ_PUSH);
+  void *push = zmq_socket(ctx, ZMQ_REQ);
   rc = zmq_connect(push, "tcp://127.0.0.1:5876");
 
-  int i;
   char * msg = malloc(size);
-  for (i=0;i < size; i++) {
-      msg[i] = i;
-  }
   double timestamp_before = timestamp();
+  int i;
   for(i = 0; i < pings; i++) {
+    char buf;
     zmq_send(push, msg, size, 0);
+    zmq_recv(push, buf, 0, 0);
     // printf("client received '%s'\n", buf);
   }
   zmq_send(push, "", 0, 0);
   zmq_recv(pull, msg, sizeof(int), 0);
 
   double timestamp_after = timestamp();
-  double elapsed = timestamp_after - timestamp_before;
-
-  unsigned long throughput = (unsigned long) 
-    ((double) pings / (double) elapsed * 1000000);
-  double megabits = (double) (throughput * size * 8) / 1000000;
-
-  // size, throughput [msg/s], throughput [Mb/s]
-  fprintf (stderr, "%d %lf %d %.3f\n", (int) size, elapsed, (int)throughput, (double) megabits);
+  fprintf(stderr, "%i %lf\n", size, timestamp_after - timestamp_before);
 
   printf("client did %d pings\n", pings);
   return 0;

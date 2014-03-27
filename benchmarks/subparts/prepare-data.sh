@@ -1,6 +1,7 @@
 #!/bin/sh
-rm ${1/exe/data}
-for i in 1 10 100 528 600 1000 1024 1360 2000 10000 ; do
-  echo "time ./$1 10000 $i 2>>${1/exe/data}"
-  time ./$1 10000 $i 2>>${1/exe/data}
+sleep 2
+echo > ${1/exe/data}
+N=1000000
+for i in 1 20 10 30 40 64 79 85 100 200 256 528 600 728 1000 1024 1360 2000 10000 20000 40000 80000 100000; do
+  time ./$1 $N $i 2>>${1/exe/data}
 done
