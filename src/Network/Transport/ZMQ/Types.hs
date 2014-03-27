@@ -72,7 +72,7 @@ defaultZMQParameters :: ZMQParameters
 defaultZMQParameters = ZMQParameters
       { highWaterMark = 0
       , authorizationType = ZMQNoAuth
-      , minPort       = 2000
+      , minPort       = 40000
       , maxPort       = 60000
       , maxTries      = 10000
       }
