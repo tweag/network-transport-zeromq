@@ -21,8 +21,7 @@ import           System.ZMQ4.Monadic
       )
 import qualified System.ZMQ4.Monadic as M
 import           System.ZMQ4
-      ( Context
-      , errno
+      ( errno
       )
 import qualified System.ZMQ4         as P
 
@@ -69,7 +68,7 @@ authManager ctx user pass = do
     req <- P.socket ctx P.Rep
     P.bind req "inproc://zeromq.zap.01"
     async $ forever $ do
-      ("1.0":requestId:domain:ipAddress:identity:mech:xs) <- P.receiveMulti req
+      ("1.0":requestId:_domain:_ipAddress:_identity:mech:xs) <- P.receiveMulti req
       case mech of
         "PLAIN" -> case xs of
            (pass':user':_)
@@ -83,5 +82,5 @@ authManager ctx user pass = do
 -- | Close socket immideately.
 closeZeroLinger :: P.Socket a -> IO ()
 closeZeroLinger sock = do
-  P.setLinger (P.restrict 0) sock
+  P.setLinger (P.restrict (0::Int)) sock
   P.close sock

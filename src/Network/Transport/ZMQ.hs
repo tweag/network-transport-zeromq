@@ -71,7 +71,6 @@ import           Data.IORef
       )
 import           Data.List.NonEmpty
 import qualified Data.Map.Strict as Map
--- import           Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Traversable as Traversable
 import           Data.Typeable
@@ -80,7 +79,6 @@ import           GHC.Generics
       ( Generic )
 
 import Network.Transport
-import Network.Transport.ZMQ.Types
 import           System.IO
       ( fixIO )
 import           System.ZMQ4
@@ -88,7 +86,7 @@ import           System.ZMQ4
 import qualified System.ZMQ4 as ZMQ
 import qualified System.ZMQ4.Utils   as ZMQ
 
-import Text.Printf
+-- import Text.Printf
 
 --------------------------------------------------------------------------------
 --- Internal datatypes                                                        --
@@ -530,7 +528,7 @@ endPointCreate params ctx addr = do
                                           ZMQConnectionValid _ -> throwM $ InvariantViolation "RemoteEndPoint should be closed"
                                         void $ tryPutMVar (connectionReady c) ()
                                    )
-                    RemoteEndPointPending p -> return (RemoteEndPointPending p, undefined)
+                    RemoteEndPointPending p -> return (RemoteEndPointPending p, throwM $ InvariantViolation "RemoteEndPoint should be closed")
               where 
                 r = _localEndPointRemotes v
             LocalEndPointClosed -> return $ return ()
@@ -864,7 +862,7 @@ remoteEndPointClose silent lep rep = do
      RemoteEndPointFailed        -> return (o, return ())
      RemoteEndPointClosed        -> return (o, return ())
      RemoteEndPointClosing (ClosingRemoteEndPoint _ l) -> return (o, void $ readMVar l)
-     RemoteEndPointPending _ -> closing undefined o -- XXX: store socket, or delay
+     RemoteEndPointPending _ -> closing (throwM $ InvariabntViolation "Pending actions should not be executed") o -- XXX: store socket, or delay
      RemoteEndPointValid v   -> closing (_remoteEndPointChan v) o
  where
    closing sock old = do
@@ -929,7 +927,7 @@ breakConnection :: ZMQTransport
                 -> EndPointAddress
                 -> EndPointAddress
                 -> IO ()
-breakConnection zmqt from to = Foldable.sequence_ <=<  withMVar (_transportState zmqt) $ \case
+breakConnection zmqt _from to = Foldable.sequence_ <=<  withMVar (_transportState zmqt) $ \case
     TransportValid v -> Traversable.forM (_transportEndPoints v) $ \x ->
       withMVar (localEndPointState x) $ \case
         LocalEndPointValid w -> return $ Foldable.sequence_ $ flip Map.mapWithKey (_localEndPointRemotes w) $ \key rep ->
@@ -1098,7 +1096,7 @@ apiResolveMulticastGroup zmq lep addr = withMVar (_transportState zmq) $ \case
 apiDeleteMulticastGroupRemote :: MVar MulticastGroupState -> LocalEndPoint -> MulticastAddress 
     -> ZMQ.Socket ZMQ.Req -> ByteString -> ZMQ.Socket ZMQ.Sub -> ByteString -> Maybe (Async.Async ())
     -> IO ()
-apiDeleteMulticastGroupRemote mstate lep addr req reqAddr sub subAddr mtid = mask_ $ do
+apiDeleteMulticastGroupRemote mstate lep addr req _reqAddr sub _subAddr mtid = mask_ $ do
   Foldable.traverse_ (\tid -> Async.cancel tid >> void (Async.waitCatch tid)) mtid
   modifyMVar_ mstate $ \case
     MulticastGroupClosed -> return MulticastGroupClosed
