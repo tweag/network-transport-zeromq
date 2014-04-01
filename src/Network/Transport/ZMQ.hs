@@ -862,7 +862,7 @@ remoteEndPointClose silent lep rep = do
      RemoteEndPointFailed        -> return (o, return ())
      RemoteEndPointClosed        -> return (o, return ())
      RemoteEndPointClosing (ClosingRemoteEndPoint _ l) -> return (o, void $ readMVar l)
-     RemoteEndPointPending _ -> closing (throwM $ InvariabntViolation "Pending actions should not be executed") o -- XXX: store socket, or delay
+     RemoteEndPointPending _ -> closing (error "Pending actions should not be executed") o -- XXX: store socket, or delay
      RemoteEndPointValid v   -> closing (_remoteEndPointChan v) o
  where
    closing sock old = do
