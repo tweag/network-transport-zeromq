@@ -16,8 +16,9 @@ module Network.Transport.ZMQ
   , breakConnection         -- :: ZMQTransport -> EndPointAddress -> EndPointAddress -> IO ()
   , unsafeConfigurePush
   -- $cleanup
-  , registerCleanupAction   -- :: IO () -> IO Unique
-  , applyCleanupAction      -- :: Unique -> IO ()
+  , registerCleanupAction        -- :: ZMQTransport -> IO () -> IO (Maybe Unique)
+  , registerValidCleanupAction   -- :: ZMQTransport -> IO () -> IO Unique
+  , applyCleanupAction           -- :: Unique -> IO ()
   -- * Design
   -- $design
   -- ** Multicast
@@ -1186,10 +1187,14 @@ apiMulticastClose = return ()
 -- | Register action that will be fired when transport will be closed.
 registerCleanupAction :: ZMQTransport -> IO () -> IO (Maybe Unique)
 registerCleanupAction zmq fn = withMVar (_transportState zmq) $ \case
-  TransportValid (ValidTransportState _ _ _ im) -> Just <$> do
+  TransportValid v -> registerValidCleanupAction v fn
+  TransportClosed  -> return Nothing
+
+-- | Register action on a locked transport.
+registerValidCleanupAction :: ValidTransportState -> IO () -> IO (Maybe Unique)
+registerValidCleanupAction (ValidTransportState _ _ _ im) fn = Just <$> do
     u <- newUnique
     atomicModifyIORef' im (\m -> (IntMap.insert (hashUnique u) fn m, u))
-  TransportClosed -> return Nothing
 
 -- | Call cleanup action before transport close.
 applyCleanupAction :: ZMQTransport -> Unique -> IO ()
