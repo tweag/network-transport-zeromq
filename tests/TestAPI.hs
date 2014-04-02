@@ -5,6 +5,8 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad ( (<=<), replicateM )
 
+import Data.IORef
+
 import Network.Transport
 import Network.Transport.ZMQ
 import System.Exit
@@ -52,6 +54,15 @@ main = finish <=< trySome $ do
     Received 4 ["final"] <- receive ep1
     putStrLn "OK"
     multicast transport
+    putStr "Register cleanup test:"
+    Right (zmq1, transport1) <- createTransportEx defaultZMQParameters "127.0.0.1"
+    x <- newIORef 0
+    Just _ <- registerCleanupAction zmq1 (modifyIORef x (+1))
+    Just u <- registerCleanupAction zmq1 (modifyIORef x (+1))
+    applyCleanupAction zmq u
+    closeTransport transport1
+    2 <- readIORef x
+    putStrLn "OK"
   where
       multicast transport = do 
         Right ep1 <- newEndPoint transport
@@ -89,6 +100,7 @@ main = finish <=< trySome $ do
         putStrLn "OK"
       finish (Left e) = print e >> exitWith (ExitFailure 1)
       finish Right{} = exitWith ExitSuccess
+
 
 trySome :: IO a -> IO (Either SomeException a)
 trySome = try

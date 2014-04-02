@@ -43,6 +43,7 @@ import Control.Concurrent.STM.TMChan
 import Data.Word
 import Data.ByteString
 import Data.IORef
+import Data.IntMap (IntMap)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict  as M
 import           Data.Set 
@@ -104,6 +105,8 @@ data ValidTransportState = ValidTransportState
       { _transportContext   :: !ZMQ.Context
       , _transportEndPoints :: !(Map EndPointAddress LocalEndPoint)
       , _transportAuth      :: !(Maybe (Async ()))
+      , _transportSockets   :: !(IORef (IntMap (IO ())))
+      -- ^ A set of cleanup actions.
       }
 
 data LocalEndPoint = LocalEndPoint

@@ -1,5 +1,5 @@
 name:                network-transport-zeromq
-version:             0.1.0.0
+version:             0.1.1.0
 synopsis:            ZeroMQ backend for network-transport
 license:             BSD3
 license-file:        LICENSE

@@ -15,6 +15,9 @@ module Network.Transport.ZMQ
   , breakConnectionEndPoint -- :: ZMQTransport -> EndPointAddress -> EndPointAddress -> IO ()
   , breakConnection         -- :: ZMQTransport -> EndPointAddress -> EndPointAddress -> IO ()
   , unsafeConfigurePush
+  -- $cleanup
+  , registerCleanupAction   -- :: IO () -> IO Unique
+  , applyCleanupAction      -- :: Unique -> IO ()
   -- * Design
   -- $design
   -- ** Multicast
@@ -68,12 +71,15 @@ import           Data.IORef
       , modifyIORef
       , readIORef
       , writeIORef
+      , atomicModifyIORef'
       )
+import qualified Data.IntMap.Strict as IntMap
 import           Data.List.NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Traversable as Traversable
 import           Data.Typeable
+import           Data.Unique
 import           Data.Void
 import           GHC.Generics
       ( Generic )
@@ -288,9 +294,10 @@ createTransportEx params host = do
     mtid <- case authorizationType params of
               ZMQAuthPlain user pass -> Just <$> ZMQ.authManager ctx user pass
               _ -> return Nothing
+    mcl  <- newIORef IntMap.empty
     transport <- ZMQTransport 
     	<$> pure addr 
-        <*> newMVar (TransportValid $ ValidTransportState ctx Map.empty mtid)
+        <*> newMVar (TransportValid $ ValidTransportState ctx Map.empty mtid mcl)
     return $ Right (transport, Transport
       { newEndPoint    = apiNewEndPoint params transport
       , closeTransport = apiTransportClose transport
@@ -304,11 +311,12 @@ apiTransportClose transport = mask_ $ do
     old <- swapMVar (_transportState transport) TransportClosed
     case old of
       TransportClosed -> return ()
-      TransportValid (ValidTransportState ctx m mtid) -> do
+      TransportValid (ValidTransportState ctx m mtid mcl) -> do
         case mtid of
           Nothing -> return ()
           Just tid -> Async.cancel tid
-        forM_ (Map.elems m) $ apiCloseEndPoint transport
+        Foldable.sequence_ $ Map.map (apiCloseEndPoint transport) m
+        Foldable.sequence_ =<< atomicModifyIORef' mcl (\x -> (IntMap.empty, x))
 	ZMQ.term ctx
 
 apiNewEndPoint :: ZMQParameters -> ZMQTransport -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
@@ -316,7 +324,7 @@ apiNewEndPoint params transport = do
 --    printf "[transport] endpoint create\n"
     elep <- modifyMVar (_transportState transport) $ \case
        TransportClosed -> return (TransportClosed, Left $ TransportError NewEndPointFailed "Transport is closed.")
-       v@(TransportValid i@(ValidTransportState ctx _ _)) -> do
+       v@(TransportValid i@(ValidTransportState ctx _ _ _)) -> do
          eEndPoint <- endPointCreate params ctx (B8.unpack addr)
          case eEndPoint of
            Right (_port, ep, chan) -> return 
@@ -1167,6 +1175,29 @@ apiMulticastUnsubscribe mgroup = withMVar (multicastGroupState mgroup) $ \case
 
 apiMulticastClose :: IO ()
 apiMulticastClose = return () 
+
+
+-- $cleanup
+-- Cleanup API is prepared to store cleanup actions for example socket
+-- close for objects that uses network-transport-zeromq resources. Theese
+-- actions will be fired on transport close.
+-- If you need to clean resource beforehead use 'applyCleanupAction'.
+
+-- | Register action that will be fired when transport will be closed.
+registerCleanupAction :: ZMQTransport -> IO () -> IO (Maybe Unique)
+registerCleanupAction zmq fn = withMVar (_transportState zmq) $ \case
+  TransportValid (ValidTransportState _ _ _ im) -> Just <$> do
+    u <- newUnique
+    atomicModifyIORef' im (\m -> (IntMap.insert (hashUnique u) fn m, u))
+  TransportClosed -> return Nothing
+
+-- | Call cleanup action before transport close.
+applyCleanupAction :: ZMQTransport -> Unique -> IO ()
+applyCleanupAction zmq u = withMVar (_transportState zmq) $ \case
+  TransportValid (ValidTransportState _ _ _ im) -> mask_ $
+    traverse_ id =<< atomicModifyIORef' im (\m -> (IntMap.delete (hashUnique u) m, IntMap.lookup (hashUnique u) m))
+  TransportClosed -> return ()
+
 
 extractRepAddress :: MulticastAddress -> ByteString
 extractRepAddress (MulticastAddress bs) = B8.concat [a,":",p]
