@@ -21,11 +21,6 @@ also passing, except monitoring and connection failure tests.
 Features
 --------
 
-* Plain-text authorization
-* Reliable connections
-* Multicast
-* Manual connection break
-
 ### Plain text authorization
 
 It's possible to add default user and password for all transport
