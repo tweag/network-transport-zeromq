@@ -43,6 +43,6 @@ will not reach High Water Mark event in presence of disconnects.
 
 ### Manual connection break
 
-0mq automatically reconnects when connection is down and resend
+ØMQ automatically reconnects when connection is down and resend
 messages so no message will be lost, however this may break some user
 assumptions thus it's possible to mark.
