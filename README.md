@@ -3,17 +3,20 @@ network-transport-zeromq
 
 [![Build Status][Build Status Image]][Build Status]
 
-network-transport-zmq provides
+`network-transport-zmq` provides
 a [network-transport][network-transport] implementation based on the
 ØMQ brokerless message passing system.
 
-Currently all network-transport tests are passing, however
-distributed-process-tests that use monitoring and connection break
-do not.
+Currently all tests from
+[network-transport-tests][network-transport-tests] are passing. All
+tests from [distributed-process-tests][distributed-process-tests] are
+also passing, except monitoring and connection failure tests.
 
 [Build Status Image]: https://secure.travis-ci.org/tweag/network-transport-zeromq.png?branch=master
 [Build Status]: http://travis-ci.org/tweag/network-transport-zeromq
 [network-transport]: http://hackage.haskell.org/package/network-transport
+[network-transport-tests]: http://hackage.haskell.org/package/network-transport-tests
+[distributed-process-tests]: https://github.com/haskell-distributed/distributed-process-tests
 
 Features:
 --------
