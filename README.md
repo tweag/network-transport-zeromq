@@ -1,28 +1,37 @@
-Network-transprt 0mq
-====================
+network-transport-zeromq
+========================
 
-network-transport-zmq provides a
-[network-transport](http://hackage.haskell.org/package/network-transport)
-implementation based on the 0mq brokerless message passing system.
+[![Build Status][Build Status Image]][Build Status]
 
-Currently all network-transport tests are passing, however
-distributed-process-tests that use monitoring and connection break
-do not.
+[network-transport][network-transport] backend based on the
+[ØMQ][zeromq] brokerless protocol. This implementation makes it
+possible to access the wealth of ØMQ transports through a simple and
+shared API. In particular, ØMQ supports authenticated communication
+channels, encryption, efficient multicast and throughput enhancement
+techniques such as message batching.
 
-Features:
+Wrapping a subset of the ØMQ API behind the network-transport API
+makes it possible for a wealth of higher-level libraries such as
+[distributed-process][distributed-process] and [HdpH][hdph] to
+communicate over ØMQ seamlessly, with little to no modification
+necessary.
+
+[Build Status Image]: https://secure.travis-ci.org/tweag/network-transport-zeromq.png?branch=master
+[Build Status]: http://travis-ci.org/tweag/network-transport-zeromq
+[network-transport]: http://hackage.haskell.org/package/network-transport
+[distributed-process]: http://hackage.haskell.org/package/distributed-process
+[hdph]: http://hackage.haskell.org/package/hdph
+[zeromq]: http://zeromq.org
+
+Features
 --------
-
-    [+] Plain-text authorization
-    [+] Reliable connections
-    [+] Multicast
-    [+] Manual connection break
 
 ### Plain text authorization
 
 It's possible to add default user and password for all transport
 connection by setting authorization ZMQParameters
 ```haskell
-defaultZMQParameters {authorizationType=ZMQAuthPlain "user" "password"}
+defaultZMQParameters{ authorizationType = ZMQAuthPlain "user" "password" }
 ```
 
 ### Reliable connections
@@ -31,12 +40,44 @@ n-t-zmq uses Push-Pull pattern to implement reliable connections.
 
 ### Multicast protocol
 
-n-t-zmq provide multicast group based on Pub Sub protocol, this
-protocol is semi reliable, i.e. all messages will be delivered if they
-will not reach High Water Mark event in presence of disconnects.
+network-transport-zeromq provide multicast group based on Pub-Sub
+protocol. This protocol is semi-reliable, in that if the high water
+mark (HWM) is reached then some messages may be lost.
 
 ### Manual connection break
 
-0mq automatically reconnects when connection is down and resend
+ØMQ automatically reconnects when connection is down and resend
 messages so no message will be lost, however this may break some user
 assumptions thus it's possible to mark.
+
+Stability
+---------
+
+Experimental.
+
+Currently all tests from
+[network-transport-tests][network-transport-tests] are passing. All
+tests from [distributed-process-tests][distributed-process-tests] are
+also passing, except monitoring and connection failure tests.
+
+[network-transport-tests]: http://hackage.haskell.org/package/network-transport-tests
+[distributed-process-tests]: https://github.com/haskell-distributed/distributed-process-tests
+
+Credits
+-------
+
+![Tweag I/O](http://tweag.io/images/tm/logo.png)
+
+network-transport-zeromq is maintained and funded by [Tweag
+I/O](http://tweag.io/)
+
+The names and logos for Tweag I/O are trademarks of EURL Tweag.
+
+Got questions? Need help? Tweet at [@tweagio](http://twitter.com/tweagio).
+
+License
+-------
+
+network-transport-zeromq is Copyright © 2014 EURL Tweag. It is free
+software, and may be redistributed under the terms specified in the
+LICENSE file.
