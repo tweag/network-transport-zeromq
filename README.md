@@ -16,17 +16,10 @@ makes it possible for a wealth of higher-level libraries such as
 communicate over ØMQ seamlessly, with little to no modification
 necessary.
 
-Currently all tests from
-[network-transport-tests][network-transport-tests] are passing. All
-tests from [distributed-process-tests][distributed-process-tests] are
-also passing, except monitoring and connection failure tests.
-
 [Build Status Image]: https://secure.travis-ci.org/tweag/network-transport-zeromq.png?branch=master
 [Build Status]: http://travis-ci.org/tweag/network-transport-zeromq
 [network-transport]: http://hackage.haskell.org/package/network-transport
-[network-transport-tests]: http://hackage.haskell.org/package/network-transport-tests
 [distributed-process]: http://hackage.haskell.org/package/distributed-process
-[distributed-process-tests]: https://github.com/haskell-distributed/distributed-process-tests
 [hdph]: http://hackage.haskell.org/package/hdph
 [zeromq]: http://zeromq.org
 
@@ -56,3 +49,16 @@ mark (HWM) is reached then some messages may be lost.
 ØMQ automatically reconnects when connection is down and resend
 messages so no message will be lost, however this may break some user
 assumptions thus it's possible to mark.
+
+Stability
+---------
+
+Experimental.
+
+Currently all tests from
+[network-transport-tests][network-transport-tests] are passing. All
+tests from [distributed-process-tests][distributed-process-tests] are
+also passing, except monitoring and connection failure tests.
+
+[network-transport-tests]: http://hackage.haskell.org/package/network-transport-tests
+[distributed-process-tests]: https://github.com/haskell-distributed/distributed-process-tests
