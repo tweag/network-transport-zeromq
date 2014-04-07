@@ -16,20 +16,20 @@
 
 module Network.Transport.ZMQ
   ( -- * Main API
-    createTransport       -- :: ZMQParameters -> ByteString -> IO (Either ZMQError Transport)
+    createTransport
   , ZMQParameters(..)
   , ZMQAuthType(..)
-  , defaultZMQParameters  -- :: ZMQParameters
+  , defaultZMQParameters
   -- * Internals
   -- $internals
   , createTransportEx
-  , breakConnectionEndPoint -- :: ZMQTransport -> EndPointAddress -> EndPointAddress -> IO ()
-  , breakConnection         -- :: ZMQTransport -> EndPointAddress -> EndPointAddress -> IO ()
+  , breakConnectionEndPoint
+  , breakConnection
   , unsafeConfigurePush
   -- $cleanup
-  , registerCleanupAction        -- :: ZMQTransport -> IO () -> IO (Maybe Unique)
-  , registerValidCleanupAction   -- :: ZMQTransport -> IO () -> IO Unique
-  , applyCleanupAction           -- :: Unique -> IO ()
+  , registerCleanupAction
+  , registerValidCleanupAction
+  , applyCleanupAction
   -- * Design
   -- $design
   -- ** Multicast
