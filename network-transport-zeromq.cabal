@@ -50,6 +50,7 @@ library
                       LambdaCase
                       ScopedTypeVariables
                       StandaloneDeriving
+  other-extensions:   CPP
   default-language:   Haskell2010
 
 

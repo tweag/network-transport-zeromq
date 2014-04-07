@@ -12,7 +12,8 @@
 --
 -- This module is intended to be imported qualified.
 
-{-# LANGUAGE DeriveGeneric, StandaloneDeriving, OverloadedStrings, DeriveDataTypeable, CPP #-}
+{-# LANGUAGE CPP #-}
+
 module Network.Transport.ZMQ
   ( -- * Main API
     createTransport       -- :: ZMQParameters -> ByteString -> IO (Either ZMQError Transport)
