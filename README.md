@@ -3,9 +3,18 @@ network-transport-zeromq
 
 [![Build Status][Build Status Image]][Build Status]
 
-`network-transport-zmq` provides
-a [network-transport][network-transport] implementation based on the
-ØMQ brokerless message passing system.
+[network-transport][network-transport] backend based on the
+[ØMQ][zeromq] brokerless protocol. This implementation makes it
+possible to access the wealth of ØMQ transports through a simple and
+shared API. In particular, ØMQ supports authenticated communication
+channels, encryption, efficient multicast and throughput enhancement
+techniques such as message batching.
+
+Wrapping a subset of the ØMQ API behind the network-transport API
+makes it possible for a wealth of higher-level libraries such as
+[distributed-process][distributed-process] and [HdpH][hdph] to
+communicate over ØMQ seamlessly, with little to no modification
+necessary.
 
 Currently all tests from
 [network-transport-tests][network-transport-tests] are passing. All
@@ -16,7 +25,10 @@ also passing, except monitoring and connection failure tests.
 [Build Status]: http://travis-ci.org/tweag/network-transport-zeromq
 [network-transport]: http://hackage.haskell.org/package/network-transport
 [network-transport-tests]: http://hackage.haskell.org/package/network-transport-tests
+[distributed-process]: http://hackage.haskell.org/package/distributed-process
 [distributed-process-tests]: https://github.com/haskell-distributed/distributed-process-tests
+[hdph]: http://hackage.haskell.org/package/hdph
+[zeromq]: http://zeromq.org
 
 Features
 --------
