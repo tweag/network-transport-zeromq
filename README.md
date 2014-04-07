@@ -1,5 +1,5 @@
-Network-transprt 0mq
-====================
+network-transport-zeromq
+========================
 
 network-transport-zmq provides a
 [network-transport](http://hackage.haskell.org/package/network-transport)
