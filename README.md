@@ -18,20 +18,20 @@ also passing, except monitoring and connection failure tests.
 [network-transport-tests]: http://hackage.haskell.org/package/network-transport-tests
 [distributed-process-tests]: https://github.com/haskell-distributed/distributed-process-tests
 
-Features:
+Features
 --------
 
-    [+] Plain-text authorization
-    [+] Reliable connections
-    [+] Multicast
-    [+] Manual connection break
+* Plain-text authorization
+* Reliable connections
+* Multicast
+* Manual connection break
 
 ### Plain text authorization
 
 It's possible to add default user and password for all transport
 connection by setting authorization ZMQParameters
 ```haskell
-defaultZMQParameters {authorizationType=ZMQAuthPlain "user" "password"}
+defaultZMQParameters{ authorizationType = ZMQAuthPlain "user" "password" }
 ```
 
 ### Reliable connections
@@ -40,9 +40,9 @@ n-t-zmq uses Push-Pull pattern to implement reliable connections.
 
 ### Multicast protocol
 
-n-t-zmq provide multicast group based on Pub Sub protocol, this
-protocol is semi reliable, i.e. all messages will be delivered if they
-will not reach High Water Mark event in presence of disconnects.
+network-transport-zeromq provide multicast group based on Pub-Sub
+protocol. This protocol is semi-reliable, in that if the high water
+mark (HWM) is reached then some messages may be lost.
 
 ### Manual connection break
 
