@@ -18,8 +18,8 @@ flag benchmarks
   description: build benchmarks
   default:     False
 
-flag unsafe-constructs
-  description: use faster primitives, but it will introduce undefined behaviour on some usecases
+flag unsafe
+  description: Use faster but unsafe primitives.
   default:     False
 
 library
@@ -42,7 +42,7 @@ library
   other-modules:      System.ZMQ4.Utils
   hs-source-dirs:     src
   ghc-options:        -Wall
-  if flag(unsafe-constructs)
+  if flag(unsafe)
     cpp-options:      -DUNSAFE_SEND
   default-extensions: DeriveGeneric
                       DeriveDataTypeable
