@@ -57,149 +57,161 @@ import Network.Transport
 import qualified System.ZMQ4 as ZMQ
 
 
--- | Parameters for ZeroMQ connection
+-- | Parameters for ZeroMQ connection.
 data ZMQParameters = ZMQParameters
-      { highWaterMark :: Word64 -- uint64_t
-      , authorizationType :: ZMQAuthType
-      , minPort       :: Int
-      , maxPort       :: Int
-      , maxTries      :: Int
-      }
--- High Watermark
+  { highWaterMark     :: Word64 -- uint64_t
+  , authorizationType :: ZMQAuthType
+  , minPort           :: Int
+  , maxPort           :: Int
+  , maxTries          :: Int
+  }
 
 defaultZMQParameters :: ZMQParameters
 defaultZMQParameters = ZMQParameters
-      { highWaterMark = 0
-      , authorizationType = ZMQNoAuth
-      , minPort       = 40000
-      , maxPort       = 60000
-      , maxTries      = 10000
-      }
+    { highWaterMark     = 0
+    , authorizationType = ZMQNoAuth
+    , minPort           = 40000
+    , maxPort           = 60000
+    , maxTries          = 10000
+    }
 
 data ZMQAuthType
-        = ZMQNoAuth
-        | ZMQAuthPlain
-            { zmqAuthPlainPassword :: ByteString
-            , zmqAutnPlainUserName :: ByteString
-            }
+  = ZMQNoAuth
+  | ZMQAuthPlain
+    { zmqAuthPlainPassword :: ByteString
+    , zmqAutnPlainUserName :: ByteString
+    }
 
 type TransportAddress = ByteString
 
 -- | Transport data type.
 data ZMQTransport = ZMQTransport
-    { transportAddress :: !TransportAddress
-    -- ^ Transport address (used as identifier).
-    , _transportState  :: !(MVar TransportState)
-    -- ^ Internal state.
-    }
+  { transportAddress :: !TransportAddress
+  -- ^ Transport address (used as identifier).
+  , _transportState  :: !(MVar TransportState)
+  -- ^ Internal state.
+  }
 
 -- | Transport state.
 data TransportState
-      = TransportValid !ValidTransportState         -- ^ Transport is in active state.
-      | TransportClosed                             -- ^ Transport is closed.
+  = TransportValid !ValidTransportState         -- ^ Transport is in active state.
+  | TransportClosed                             -- ^ Transport is closed.
 
 -- | Transport state.
 data ValidTransportState = ValidTransportState
-      { _transportContext   :: !ZMQ.Context
-      , _transportEndPoints :: !(Map EndPointAddress LocalEndPoint)
-      , _transportAuth      :: !(Maybe (Async ()))
-      , _transportSockets   :: !(IORef (IntMap (IO ())))
-      -- ^ A set of cleanup actions.
-      }
+  { _transportContext   :: !ZMQ.Context
+  , _transportEndPoints :: !(Map EndPointAddress LocalEndPoint)
+  , _transportAuth      :: !(Maybe (Async ()))
+  , _transportSockets   :: !(IORef (IntMap (IO ())))
+  -- ^ A set of cleanup actions.
+  }
 
 data LocalEndPoint = LocalEndPoint
-      { localEndPointAddress :: !EndPointAddress
-      , localEndPointState   :: !(MVar LocalEndPointState)
-      , localEndPointPort    :: !(Int)
-      }
+  { localEndPointAddress :: !EndPointAddress
+  , localEndPointState   :: !(MVar LocalEndPointState)
+  , localEndPointPort    :: !(Int)
+  }
 
 data LocalEndPointState
-      = LocalEndPointValid !ValidLocalEndPoint
-      | LocalEndPointClosed
+  = LocalEndPointValid !ValidLocalEndPoint
+  | LocalEndPointClosed
 
 data ValidLocalEndPoint = ValidLocalEndPoint
-      { _localEndPointChan        :: !(TMChan Event)
-        -- ^ channel for n-t - user communication
-      , _localEndPointConnections :: !(Counter ConnectionId ZMQConnection)
-        -- ^ list of incomming connections
-      , _localEndPointRemotes     :: !(Map EndPointAddress RemoteEndPoint)
-        -- ^ list of remote end points
-      , _localEndPointThread      :: !(Async ())
-        -- ^ thread id
-      , _localEndPointOpened      :: !(IORef Bool)
-        -- ^ is remote endpoint opened
-      , _localEndPointMulticastGroups :: !(Map MulticastAddress ZMQMulticastGroup)
-        -- ^ list of multicast nodes
-      }
+  { _localEndPointChan        :: !(TMChan Event)
+    -- ^ channel for n-t - user communication
+  , _localEndPointConnections :: !(Counter ConnectionId ZMQConnection)
+    -- ^ list of incomming connections
+  , _localEndPointRemotes     :: !(Map EndPointAddress RemoteEndPoint)
+    -- ^ list of remote end points
+  , _localEndPointThread      :: !(Async ())
+    -- ^ thread id
+  , _localEndPointOpened      :: !(IORef Bool)
+    -- ^ is remote endpoint opened
+  , _localEndPointMulticastGroups :: !(Map MulticastAddress ZMQMulticastGroup)
+    -- ^ list of multicast nodes
+  }
 
 data ZMQConnection = ZMQConnection
-      { connectionLocalEndPoint  :: !LocalEndPoint
-      , connectionRemoteEndPoint :: !RemoteEndPoint
-      , connectionReliability    :: !Reliability
-      , connectionState          :: !(MVar ZMQConnectionState)
-      , connectionReady          :: !(MVar ())
-      }
+  { connectionLocalEndPoint  :: !LocalEndPoint
+  , connectionRemoteEndPoint :: !RemoteEndPoint
+  , connectionReliability    :: !Reliability
+  , connectionState          :: !(MVar ZMQConnectionState)
+  , connectionReady          :: !(MVar ())
+  }
 
 data ZMQConnectionState
-      = ZMQConnectionInit
-      | ZMQConnectionValid !ValidZMQConnection
-      | ZMQConnectionClosed
-      | ZMQConnectionFailed
+  = ZMQConnectionInit
+  | ZMQConnectionValid !ValidZMQConnection
+  | ZMQConnectionClosed
+  | ZMQConnectionFailed
 
 data ValidZMQConnection = ValidZMQConnection
-      { _connectionSocket         :: !(Maybe (ZMQ.Socket ZMQ.Push))
-      , _connectionId             :: !Word64
-      }
+  { _connectionSocket         :: !(Maybe (ZMQ.Socket ZMQ.Push))
+  , _connectionId             :: !Word64
+  }
 
 data RemoteEndPoint = RemoteEndPoint
-      { remoteEndPointAddress :: !EndPointAddress
-      , remoteEndPointState   :: !(MVar RemoteEndPointState)
-      , remoteEndPointOpened  :: !(IORef Bool)
-      }
+  { remoteEndPointAddress :: !EndPointAddress
+  , remoteEndPointState   :: !(MVar RemoteEndPointState)
+  , remoteEndPointOpened  :: !(IORef Bool)
+  }
 
 data RemoteEndPointState
-      = RemoteEndPointValid ValidRemoteEndPoint
-      | RemoteEndPointClosed
-      | RemoteEndPointFailed
-      | RemoteEndPointPending (IORef [RemoteEndPointState -> IO RemoteEndPointState])
-      | RemoteEndPointClosing ClosingRemoteEndPoint
+  = RemoteEndPointValid ValidRemoteEndPoint
+  | RemoteEndPointClosed
+  | RemoteEndPointFailed
+  | RemoteEndPointPending (IORef [RemoteEndPointState -> IO RemoteEndPointState])
+  | RemoteEndPointClosing ClosingRemoteEndPoint
 
 data ValidRemoteEndPoint = ValidRemoteEndPoint
-      { _remoteEndPointChan                 :: !(Socket Push)
-      , _remoteEndPointPendingConnections   :: !(Counter ConnectionId ZMQConnection)
-      , _remoteEndPointIncommingConnections :: !(Set ConnectionId)
-      , _remoteEndPointOutgoingCount        :: !Int
-      }
+  { _remoteEndPointChan                 :: !(Socket Push)
+  , _remoteEndPointPendingConnections   :: !(Counter ConnectionId ZMQConnection)
+  , _remoteEndPointIncommingConnections :: !(Set ConnectionId)
+  , _remoteEndPointOutgoingCount        :: !Int
+  }
 
 data ClosingRemoteEndPoint = ClosingRemoteEndPoint
-     { _remoteEndPointClosingSocket :: !(Socket Push)
-     , _remoteEndPointDone :: !(MVar ())
-     }
+  { _remoteEndPointClosingSocket :: !(Socket Push)
+  , _remoteEndPointDone :: !(MVar ())
+  }
 
 data ZMQMulticastGroup = ZMQMulticastGroup
-      { multicastGroupState         :: MVar MulticastGroupState
-      , multicastGroupClose         :: IO ()
-      }
+  { multicastGroupState         :: MVar MulticastGroupState
+  , multicastGroupClose         :: IO ()
+  }
 
 data MulticastGroupState
-        = MulticastGroupValid ValidMulticastGroup
-        | MulticastGroupClosed
+  = MulticastGroupValid ValidMulticastGroup
+  | MulticastGroupClosed
 
 data ValidMulticastGroup = ValidMulticastGroup
-      { _multicastGroupSubscribed :: IORef Bool
-      }
+  { _multicastGroupSubscribed :: IORef Bool
+  }
 
-data Counter a b = Counter { counterNext   :: !a
-                           , counterValue :: !(Map a b)
-                           }
+data Counter a b = Counter
+  { counterNext   :: !a
+  , counterValue  :: !(Map a b)
+  }
 
-nextElement :: (Enum a, Ord a) => (b -> IO Bool) -> b -> Counter a b -> IO (Counter a b, (a, b))
+nextElement :: (Enum a, Ord a)
+            => (b -> IO Bool)
+            -> b
+            -> Counter a b
+            -> IO (Counter a b, (a, b))
 nextElement t e c = nextElement' t (const e) c
 
-nextElement' :: (Enum a, Ord a) => (b -> IO Bool) -> (a -> b) -> Counter a b -> IO (Counter a b, (a,b))
+nextElement' :: (Enum a, Ord a)
+             => (b -> IO Bool)
+             -> (a -> b)
+             -> Counter a b
+             -> IO (Counter a b, (a,b))
 nextElement' t e c = nextElementM t (return . e) c
 
-nextElementM :: (Enum a, Ord a) => (b -> IO Bool) -> (a -> IO b) -> Counter a b -> IO (Counter a b, (a,b))
+nextElementM :: (Enum a, Ord a)
+             => (b -> IO Bool)
+             -> (a -> IO b)
+             -> Counter a b
+             -> IO (Counter a b, (a,b))
 nextElementM t me (Counter n m) =
     case n' `M.lookup` m of
       Nothing -> mv >>= \v' -> return (Counter n' (M.insert n' v' m), (n', v'))
@@ -210,7 +222,11 @@ nextElementM t me (Counter n m) =
     n' = succ n
     mv = me n'
 
-nextElementM' :: (Enum a, Ord a) => (b -> IO Bool) -> (a -> IO (b,c)) -> Counter a b -> IO (Counter a b, (a,c))
+nextElementM' :: (Enum a, Ord a)
+              => (b -> IO Bool)
+              -> (a -> IO (b,c))
+              -> Counter a b
+              -> IO (Counter a b, (a,c))
 nextElementM' t me (Counter n m) =
     case n' `M.lookup` m of
       Nothing -> mv >>= \(v',r) -> return (Counter n' (M.insert n' v' m), (n', r))
