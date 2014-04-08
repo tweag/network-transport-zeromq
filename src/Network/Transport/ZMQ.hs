@@ -250,16 +250,16 @@ import qualified System.ZMQ4 as ZMQ
 -- options, this functionality should be used with caution as it may break
 -- required socket properties.
 
--- | Messages
+-- | Messages.
 data ZMQMessage
-      = MessageConnect !EndPointAddress -- ^ Connection greeting
-      | MessageInitConnection !EndPointAddress !ConnectionId !Reliability
-      | MessageInitConnectionOk !EndPointAddress !ConnectionId !ConnectionId
-      | MessageCloseConnection !ConnectionId
-      | MessageData !ConnectionId
-      | MessageEndPointClose !EndPointAddress !Bool
-      | MessageEndPointCloseOk !EndPointAddress
-      deriving (Generic)
+  = MessageConnect !EndPointAddress -- ^ Connection greeting
+  | MessageInitConnection !EndPointAddress !ConnectionId !Reliability
+  | MessageInitConnectionOk !EndPointAddress !ConnectionId !ConnectionId
+  | MessageCloseConnection !ConnectionId
+  | MessageData !ConnectionId
+  | MessageEndPointClose !EndPointAddress !Bool
+  | MessageEndPointCloseOk !EndPointAddress
+  deriving (Generic)
 
 {-
 instance Binary ZMQMessage where
@@ -283,10 +283,11 @@ reservedConnectionId = 7
 
 instance Binary ZMQMessage
 
-data ZMQError = InvariantViolation String
-              | IncorrectState String
-              | ConnectionFailed
-              deriving (Typeable, Show)
+data ZMQError
+  = InvariantViolation String
+  | IncorrectState String
+  | ConnectionFailed
+  deriving (Typeable, Show)
 
 instance Exception ZMQError
 
@@ -1188,7 +1189,6 @@ apiMulticastUnsubscribe mgroup = withMVar (multicastGroupState mgroup) $ \case
 apiMulticastClose :: IO ()
 apiMulticastClose = return ()
 
-
 -- $cleanup
 -- Cleanup API is prepared to store cleanup actions for example socket
 -- close for objects that uses network-transport-zeromq resources. Theese
@@ -1213,7 +1213,6 @@ applyCleanupAction zmq u = withMVar (_transportState zmq) $ \case
   TransportValid (ValidTransportState _ _ _ im) -> mask_ $
     traverse_ id =<< atomicModifyIORef' im (\m -> (IntMap.delete (hashUnique u) m, IntMap.lookup (hashUnique u) m))
   TransportClosed -> return ()
-
 
 extractRepAddress :: MulticastAddress -> ByteString
 extractRepAddress (MulticastAddress bs) = B8.concat [a,":",p]
