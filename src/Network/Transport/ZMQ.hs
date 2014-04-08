@@ -117,7 +117,8 @@ import qualified System.ZMQ4 as ZMQ
 --  |       +---+---------------- can be configured by user, one host,
 --  |                             port pair per distributed process
 --  |                             instance
---  +---------------------------- In feature it will be possible to add another schemas.
+--  +---------------------------- In future it will be possible to add other
+--                                schemas.
 -- @
 --
 -- Transport specifies host that will be used, and port will be
@@ -125,17 +126,16 @@ import qualified System.ZMQ4 as ZMQ
 --
 -- * Connections Reliability
 --
--- Currently only reliable connections are supportred. In case if
--- Unreliable type was passed reliable connection will be created.
--- This may be changed in future versions.
+-- Currently only reliable connections are supported. In case 'Unreliable' was
+-- passed the connection will nonetheless be reliable, since it is not incorrect
+-- to do so. This may be changed in future versions.
 --
 -- Network-transport-zeromq maintains one thread for each endpoint that is
--- used to read incomming requests, all sends and connection requests are
--- handled from the user thread and mostly asynchronous.
+-- used to read incoming requests. All sends and connection requests are
+-- handled from the user thread and are mostly asynchronous.
 --
--- Each endpoint obtains one pull socket and push socket for each remote
--- end point, all lightweight threads abrigged into one heavyweight
--- connection.
+-- Each endpoint obtains one pull socket and one push socket for each remote end
+-- point. All lightweight threads abrigged into one heavyweight connection.
 --
 -- Virually connections looks like the following plot:
 --
@@ -147,28 +147,26 @@ import qualified System.ZMQ4 as ZMQ
 -- |               | pull |<-----------------------| push |           |
 -- +               +------+                        +------+           |
 -- |                  |     +--------------------+     |              |
--- +               +------+/~~~~ connection 1 ~~~~\\+------+           |
+-- +               +------+/~~~~ connection 1 ~~~~\\+------+          |
 -- |               | push |~~~~~ connection 2 ~~~~~| pull |           |
--- |               +------+\\                      /+------+           |
+-- |               +------+\\                      /+------+          |
 -- |                  |     +--------------------+     |              |
 -- +------------------+                                +--------------+
 -- @
 --
--- Physically 0mq may choose better representations and mapping on
--- a real connections.
+-- Physically ZeroMQ may choose better representations and mapping on a real
+-- connections.
 --
--- ZeroMQ connection takes care of reliability thus for correct lifeness,
--- it stores messages so in case of connecdtion break in may be restarted
--- with no message loss. So heartbeating procedure should be introduced on
--- the top on network-transport, and 'breakConnection' should be used to notify
--- connection death. However if High Water Mark will be reached connection
--- to endpoint considered failed and connection break procedure started
--- automatically.
---
+-- The ZeroMQ library takes care of reliability. It keeps message in a queue
+-- such that in case of connection break, it may be restarted with no message
+-- loss. So heartbeating procedure should be introduced on the top on
+-- network-transport, and 'breakConnection' should be used to notify connection
+-- death. However if High Water Mark will be reached connection to endpoint
+-- considered failed and connection break procedure started automatically.
 
 -- Naming conventions.
 -- api* -- functions that can be called by user
--- localEndPoint -- internal functions that are used in endpoints
+-- localEndPoint  -- internal functions that are used in endpoints
 -- remoteEndPoint -- internal functions that are used in endpoints
 --
 -- Transport
@@ -183,16 +181,16 @@ import qualified System.ZMQ4 as ZMQ
 
 -- Connection closing procedure.
 -- Once endpoint is gracefully closed by user or by transport close
--- RemoteEndPoint goes into 'RemoteEndPointClosing' state and sends
+-- 'RemoteEndPoint' goes into 'RemoteEndPointClosing' state and sends
 -- a message to remote endpoint if link is known as alive, in
--- RemoteEndPointClosing all messages are ignored and EndPointClosed
--- is returned. Uppon a EndPointClose delivery endpoint replies with
--- EndPointClose message, and starts cleanup procedure (marking link
--- as not alive). When endpoint receives EndPointCloseOk message it
--- moved RemoteEndPoint to close state and removes all data structures.
+-- 'RemoteEndPointClosing' all messages are ignored and 'EndPointClosed'
+-- is returned. Uppon a 'EndPointClose' delivery endpoint replies with
+-- 'EndPointClose' message, and starts cleanup procedure (marking link
+-- as not alive). When endpoint receives 'EndPointCloseOk' message it
+-- moved 'RemoteEndPoint' to close state and removes all data structures.
 -- Together with marking a endpoint as closed asynchronous timeout is
--- set, and if EndPointCloseOk is not delivered withing that timeperiod
--- EndPoint is closed.
+-- set, and if 'EndPointCloseOk' is not delivered withing that timeperiod
+-- 'EndPoint' is closed.
 --
 -- endpoint-1                                 endpoint-2
 --  1. mark as closing
@@ -202,8 +200,8 @@ import qualified System.ZMQ4 as ZMQ
 --  2. mark as closed
 --  [RemoteEndPoint:Closed]                   4. cleanup remote end point
 --
--- EndPoint can be closed in a two ways: normally and abnormally (in case
--- of exception or invariant vionation on a remove side). If EndPoint is
+-- 'EndPoint' can be closed in a two ways: normally and abnormally (in case
+-- of exception or invariant vionation on a remove side). If 'EndPoint' is
 -- closed normally all opened connections will recevice ConnectionClosed
 -- events, otherwise.
 --
@@ -237,16 +235,13 @@ import qualified System.ZMQ4 as ZMQ
 -- message. This is done in order to keep ability to notify receiver about
 -- multcast group close.
 --
--- Current solution incorrectly keeps track of incomming connections, this
--- means that we can't really guarantee that close message is delivered to
--- every recipient and it disconnected correctly.
---
+-- Current solution incorrectly keeps track of incoming connections. This means
+-- that we can't really guarantee that a "close"" message is delivered to every
+-- recipient and it disconnected correctly.
 
-
--- $internals
--- Internal function provides additional 0mq specific set of configuration
--- options, this functionality should be used with caution as it may break
--- required socket properties.
+-- $internals Internal functions provide additional ZeroMQ specific set of
+-- configuration options. This functionality should be used with caution as it
+-- may break required socket properties.
 
 -- | Messages.
 data ZMQMessage
