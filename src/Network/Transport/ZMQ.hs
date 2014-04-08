@@ -104,8 +104,6 @@ import           System.ZMQ4
       ( Context )
 import qualified System.ZMQ4 as ZMQ
 
--- import Text.Printf
-
 --------------------------------------------------------------------------------
 --- Internal datatypes                                                        --
 --------------------------------------------------------------------------------
@@ -119,7 +117,8 @@ import qualified System.ZMQ4 as ZMQ
 --  |       +---+---------------- can be configured by user, one host,
 --  |                             port pair per distributed process
 --  |                             instance
---  +---------------------------- In feature it will be possible to add another schemas.
+--  +---------------------------- In future it will be possible to add other
+--                                schemas.
 -- @
 --
 -- Transport specifies host that will be used, and port will be
@@ -127,17 +126,16 @@ import qualified System.ZMQ4 as ZMQ
 --
 -- * Connections Reliability
 --
--- Currently only reliable connections are supportred. In case if
--- Unreliable type was passed reliable connection will be created.
--- This may be changed in future versions.
+-- Currently only reliable connections are supported. In case 'Unreliable' was
+-- passed the connection will nonetheless be reliable, since it is not incorrect
+-- to do so. This may be changed in future versions.
 --
 -- Network-transport-zeromq maintains one thread for each endpoint that is
--- used to read incomming requests, all sends and connection requests are
--- handled from the user thread and mostly asynchronous.
+-- used to read incoming requests. All sends and connection requests are
+-- handled from the user thread and are mostly asynchronous.
 --
--- Each endpoint obtains one pull socket and push socket for each remote
--- end point, all lightweight threads abrigged into one heavyweight
--- connection.
+-- Each endpoint obtains one pull socket and one push socket for each remote end
+-- point. All lightweight threads abrigged into one heavyweight connection.
 --
 -- Virually connections looks like the following plot:
 --
@@ -156,21 +154,19 @@ import qualified System.ZMQ4 as ZMQ
 -- +------------------+                                +--------------+
 -- @
 --
--- Physically 0mq may choose better representations and mapping on
--- a real connections.
+-- Physically ZeroMQ may choose better representations and mapping on a real
+-- connections.
 --
--- ZeroMQ connection takes care of reliability thus for correct lifeness,
--- it stores messages so in case of connecdtion break in may be restarted
--- with no message loss. So heartbeating procedure should be introduced on
--- the top on network-transport, and 'breakConnection' should be used to notify
--- connection death. However if High Water Mark will be reached connection
--- to endpoint considered failed and connection break procedure started
--- automatically.
---
+-- The ZeroMQ library takes care of reliability. It keeps message in a queue
+-- such that in case of connection break, it may be restarted with no message
+-- loss. So heartbeating procedure should be introduced on the top on
+-- network-transport, and 'breakConnection' should be used to notify connection
+-- death. However if High Water Mark will be reached connection to endpoint
+-- considered failed and connection break procedure started automatically.
 
 -- Naming conventions.
 -- api* -- functions that can be called by user
--- localEndPoint -- internal functions that are used in endpoints
+-- localEndPoint  -- internal functions that are used in endpoints
 -- remoteEndPoint -- internal functions that are used in endpoints
 --
 -- Transport
@@ -185,16 +181,16 @@ import qualified System.ZMQ4 as ZMQ
 
 -- Connection closing procedure.
 -- Once endpoint is gracefully closed by user or by transport close
--- RemoteEndPoint goes into 'RemoteEndPointClosing' state and sends
+-- 'RemoteEndPoint' goes into 'RemoteEndPointClosing' state and sends
 -- a message to remote endpoint if link is known as alive, in
--- RemoteEndPointClosing all messages are ignored and EndPointClosed
--- is returned. Uppon a EndPointClose delivery endpoint replies with
--- EndPointClose message, and starts cleanup procedure (marking link
--- as not alive). When endpoint receives EndPointCloseOk message it
--- moved RemoteEndPoint to close state and removes all data structures.
+-- 'RemoteEndPointClosing' all messages are ignored and 'EndPointClosed'
+-- is returned. Uppon a 'EndPointClose' delivery endpoint replies with
+-- 'EndPointClose' message, and starts cleanup procedure (marking link
+-- as not alive). When endpoint receives 'EndPointCloseOk' message it
+-- moved 'RemoteEndPoint' to close state and removes all data structures.
 -- Together with marking a endpoint as closed asynchronous timeout is
--- set, and if EndPointCloseOk is not delivered withing that timeperiod
--- EndPoint is closed.
+-- set, and if 'EndPointCloseOk' is not delivered withing that timeperiod
+-- 'EndPoint' is closed.
 --
 -- endpoint-1                                 endpoint-2
 --  1. mark as closing
@@ -204,8 +200,8 @@ import qualified System.ZMQ4 as ZMQ
 --  2. mark as closed
 --  [RemoteEndPoint:Closed]                   4. cleanup remote end point
 --
--- EndPoint can be closed in a two ways: normally and abnormally (in case
--- of exception or invariant vionation on a remove side). If EndPoint is
+-- 'EndPoint' can be closed in a two ways: normally and abnormally (in case
+-- of exception or invariant vionation on a remove side). If 'EndPoint' is
 -- closed normally all opened connections will recevice ConnectionClosed
 -- events, otherwise.
 --
@@ -239,54 +235,32 @@ import qualified System.ZMQ4 as ZMQ
 -- message. This is done in order to keep ability to notify receiver about
 -- multcast group close.
 --
--- Current solution incorrectly keeps track of incomming connections, this
--- means that we can't really guarantee that close message is delivered to
--- every recipient and it disconnected correctly.
---
+-- Current solution incorrectly keeps track of incoming connections. This means
+-- that we can't really guarantee that a "close"" message is delivered to every
+-- recipient and it disconnected correctly.
 
+-- $internals Internal functions provide additional ZeroMQ specific set of
+-- configuration options. This functionality should be used with caution as it
+-- may break required socket properties.
 
--- $internals
--- Internal function provides additional 0mq specific set of configuration
--- options, this functionality should be used with caution as it may break
--- required socket properties.
-
--- | Messages
+-- | Messages.
 data ZMQMessage
-      = MessageConnect !EndPointAddress -- ^ Connection greeting
-      | MessageInitConnection !EndPointAddress !ConnectionId !Reliability
-      | MessageInitConnectionOk !EndPointAddress !ConnectionId !ConnectionId
-      | MessageCloseConnection !ConnectionId
-      | MessageData !ConnectionId
-      | MessageEndPointClose !EndPointAddress !Bool
-      | MessageEndPointCloseOk !EndPointAddress
-      deriving (Generic)
-
-{-
-instance Binary ZMQMessage where
-  put (MessageConnect ep) = putWord64le 0 >> put ep
-  put (MessageInitConnection ep cid rel)   = putWord64le 2 >> put ep >> put cid >> put rel
-  put (MessageInitConnectionOk ep cid rid) = putWord64le 3 >> put ep >> put cid >> put rid
-  put (MessageCloseConnection cid)         = putWord64le 4 >> put cid
-  put (MessageEndPointClose ep)            = putWord64le 5 >> put ep
-  put (MessageData cid)                    = putWord64le cid
-  get = do x <- getWord64be
-           case x of
-             0 -> MessageConnect <$> get
-             2 -> MessageInitConnection   <$> get <*> get <*> get
-             3 -> MessageInitConnectionOk <$> get <*> get <*> get
-             4 -> MessageCloseConnection  <$> get
-             5 -> MessageEndPointClose    <$> get
-             6 -> MessageData <$> pure x
-
-reservedConnectionId = 7
--}
+  = MessageConnect !EndPointAddress -- ^ Connection greeting
+  | MessageInitConnection !EndPointAddress !ConnectionId !Reliability
+  | MessageInitConnectionOk !EndPointAddress !ConnectionId !ConnectionId
+  | MessageCloseConnection !ConnectionId
+  | MessageData !ConnectionId
+  | MessageEndPointClose !EndPointAddress !Bool
+  | MessageEndPointCloseOk !EndPointAddress
+  deriving (Generic)
 
 instance Binary ZMQMessage
 
-data ZMQError = InvariantViolation String
-              | IncorrectState String
-              | ConnectionFailed
-              deriving (Typeable, Show)
+data ZMQError
+  = InvariantViolation String
+  | IncorrectState String
+  | ConnectionFailed
+  deriving (Typeable, Show)
 
 instance Exception ZMQError
 
@@ -333,7 +307,6 @@ apiTransportClose transport = mask_ $ do
 
 apiNewEndPoint :: ZMQParameters -> ZMQTransport -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
 apiNewEndPoint params transport = do
---    printf "[transport] endpoint create\n"
     elep <- modifyMVar (_transportState transport) $ \case
        TransportClosed -> return (TransportClosed, Left $ TransportError NewEndPointFailed "Transport is closed.")
        v@(TransportValid i@(ValidTransportState ctx _ _ _)) -> do
@@ -366,8 +339,6 @@ apiCloseEndPoint :: ZMQTransport
                  -> LocalEndPoint
                  -> IO ()
 apiCloseEndPoint transport lep = mask_ $ do
---    printf "[%s][go] close endpoint\n"
---           (B8.unpack $ endPointAddressToByteString $ _localEndPointAddress lep)
     old <- readMVar (localEndPointState lep)
     case old of
       LocalEndPointValid (ValidLocalEndPoint x _ _ threadId _ _) -> do
@@ -434,14 +405,8 @@ endPointCreate params ctx addr = do
       case decode' cmd of
         MessageData idx -> atomically $ writeTMChan chan (Received idx msgs)
         MessageConnect theirAddress -> do
---          printf "[%s] message connect from %s\n"
---                 (B8.unpack $ endPointAddressToByteString ourAddr)
---                 (B8.unpack $ endPointAddressToByteString theirAddress)
           void $ createOrGetRemoteEndPoint params ctx ourEp theirAddress
         MessageInitConnection theirAddress theirId rel -> do
---        printf "[%s] message init connection from %s\n"
---                (B8.unpack $ endPointAddressToByteString ourAddr)
---                (B8.unpack $ endPointAddressToByteString theirAddress)
           join $ do
             modifyMVar (localEndPointState ourEp) $ \case
                 LocalEndPointValid v ->
@@ -500,9 +465,6 @@ endPointCreate params ctx addr = do
               return $ RemoteEndPointValid
                 v{_remoteEndPointIncommingConnections = Set.insert i s}
         MessageCloseConnection idx -> join $ do
---          printf "[%s] message close connection: %i\n"
---                 (B8.unpack $ endPointAddressToByteString ourAddr)
---                 idx
           modifyMVar (localEndPointState ourEp) $ \case
             LocalEndPointValid v ->
                 case idx `Map.lookup` m of
@@ -521,10 +483,6 @@ endPointCreate params ctx addr = do
                 (Counter i m) = _localEndPointConnections v
 	    LocalEndPointClosed -> return (LocalEndPointClosed, return ())
         MessageInitConnectionOk theirAddress ourId theirId -> do
---          printf "[%s] message init connection ok: %i -> %i\n"
---                 (B8.unpack $ endPointAddressToByteString ourAddr)
---                 ourId
---                 theirId
           join $ withMVar (localEndPointState ourEp) $ \case
             LocalEndPointValid v ->
                 case theirAddress `Map.lookup` r of
@@ -552,8 +510,6 @@ endPointCreate params ctx addr = do
               where
                 r = _localEndPointRemotes v
             LocalEndPointClosed -> return $ return ()
---          printf "[%s] message init connection ok                      [ok]\n"
---                          (B8.unpack $ endPointAddressToByteString ourAddr)
         MessageEndPointClose theirAddress True -> getRemoteEndPoint ourEp theirAddress >>= \case
           Nothing  -> return ()
           Just rep -> do
@@ -578,8 +534,6 @@ endPointCreate params ctx addr = do
       where
         ourAddr = localEndPointAddress ourEp
     finalizeEndPoint ourEp port pull = do
---      printf "[%s] finalize-end-point\n"
---             (B8.unpack $ endPointAddressToByteString $ _localEndPointAddress ourEp)
       join $ withMVar (localEndPointState ourEp) $ \case
         LocalEndPointClosed  -> afterP ()
         LocalEndPointValid v -> do
@@ -696,9 +650,6 @@ apiConnect :: ZMQParameters
            -> ConnectHints
            -> IO (Either (TransportError ConnectErrorCode) Connection)
 apiConnect params ctx ourEp theirAddr reliability _hints = do
---  printf "[%s] apiConnect to %s\n"
---       (B8.unpack $ endPointAddressToByteString $ _localEndPointAddress ourEp)
---       (B8.unpack $ endPointAddressToByteString theirAddr)
     eRep <- createOrGetRemoteEndPoint params ctx ourEp theirAddr
     case eRep of
       Left{} -> return $ Left $ TransportError ConnectFailed "LocalEndPoint is closed."
@@ -730,7 +681,7 @@ apiConnect params ctx ourEp theirAddr reliability _hints = do
                    , return $ Left $ TransportError ConnectFailed "RemoteEndPoint failed.")
   where
     waitReady conn apiConn = join $ withMVar (connectionState conn) $ \case
-      ZMQConnectionInit{}   -> return $ yield {-readMVar (connectionReady conn)-} >> waitReady conn apiConn
+      ZMQConnectionInit{}   -> return $ yield >> waitReady conn apiConn
       ZMQConnectionValid{}  -> afterP $ Right apiConn
       ZMQConnectionFailed{} -> afterP $ Left $ TransportError ConnectFailed "Connection failed."
       ZMQConnectionClosed{} -> throwM $ InvariantViolation "Connection closed."
@@ -758,9 +709,6 @@ createOrGetRemoteEndPoint :: ZMQParameters
                           -> EndPointAddress
                           -> IO (Either ZMQError RemoteEndPoint)
 createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
---    printf "[%s] apiConnect to %s\n"
---           saddr
---           (B8.unpack $ endPointAddressToByteString theirAddr)
     modifyMVar (localEndPointState ourEp) $ \case
       LocalEndPointValid v@(ValidLocalEndPoint _ _ m _ o _) -> do
         opened <- readIORef o
@@ -779,9 +727,6 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
                 )
   where
     create v m = do
---    printf "[%s] apiConnect: remoteEndPoint not found, creating %s\n"
---           (B8.unpack $ endPointAddressToByteString $ _localEndPointAddress ourEp)
---           (B8.unpack $ endPointAddressToByteString theirAddr)
       push <- ZMQ.socket ctx ZMQ.Push
       case authorizationType params of
           ZMQNoAuth -> return ()
@@ -874,9 +819,6 @@ closeRemoteEndPoint lep rep state = step1 >> step2 state
 
 remoteEndPointClose :: Bool -> LocalEndPoint -> RemoteEndPoint -> IO ()
 remoteEndPointClose silent lep rep = do
---   printf "[???] remoteEndPointClose %s\n"
---          (B8.unpack $ endPointAddressToByteString $ lAddr)
---          (B8.unpack $ endPointAddressToByteString $ remoteEndPointAddress rep)
    modifyIORef (remoteEndPointOpened rep) (const False)
    join $ modifyMVar (remoteEndPointState rep) $ \o -> case o of
      RemoteEndPointFailed        -> return (o, return ())
@@ -1019,10 +961,6 @@ apiNewMulticastGroup params zmq lep = withMVar (_transportState zmq) $ \case
           subAddr = extractPubAddress addr
           repAddr = extractRepAddress addr
 
---      printf "new multicastaddress: %s\n"  (show addr)
---      printf "[%s] subscribe address: %s\n" (show addr) (B8.unpack subAddr)
---      printf "[%s] send address: %s\n" (show addr) (B8.unpack repAddr)
-
       -- subscriber api
       sub <- ZMQ.socket (_transportContext vt) ZMQ.Sub
       ZMQ.connect sub (B8.unpack subAddr)
@@ -1122,10 +1060,8 @@ apiDeleteMulticastGroupRemote mstate lep addr req _reqAddr sub _subAddr mtid = m
     MulticastGroupClosed -> return MulticastGroupClosed
     MulticastGroupValid v -> do
       modifyIORef (_multicastGroupSubscribed v) (const False)
---      ZMQ.disconnect req (B8.unpack reqAddr)
       ZMQ.close req
       ZMQ.unsubscribe sub ""
---      ZMQ.disconnect sub (B8.unpack subAddr)
       ZMQ.close sub
       return MulticastGroupClosed
   modifyMVar_ (localEndPointState lep) $ \case
@@ -1149,7 +1085,6 @@ apiDeleteMulticastGroupLocal mstate lep addr rep repAddr pub sub pubAddr mtid wr
        ZMQ.unbind rep (B8.unpack repAddr)
        ZMQ.close rep
        ZMQ.unsubscribe sub ""
---       ZMQ.disconnect sub (B8.unpack pubAddr)
        ZMQ.close sub
        ZMQ.unbind pub (B8.unpack pubAddr)
        ZMQ.close pub
@@ -1188,7 +1123,6 @@ apiMulticastUnsubscribe mgroup = withMVar (multicastGroupState mgroup) $ \case
 apiMulticastClose :: IO ()
 apiMulticastClose = return ()
 
-
 -- $cleanup
 -- Cleanup API is prepared to store cleanup actions for example socket
 -- close for objects that uses network-transport-zeromq resources. Theese
@@ -1213,7 +1147,6 @@ applyCleanupAction zmq u = withMVar (_transportState zmq) $ \case
   TransportValid (ValidTransportState _ _ _ im) -> mask_ $
     traverse_ id =<< atomicModifyIORef' im (\m -> (IntMap.delete (hashUnique u) m, IntMap.lookup (hashUnique u) m))
   TransportClosed -> return ()
-
 
 extractRepAddress :: MulticastAddress -> ByteString
 extractRepAddress (MulticastAddress bs) = B8.concat [a,":",p]
