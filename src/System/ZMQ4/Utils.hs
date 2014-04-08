@@ -1,3 +1,7 @@
+-- |
+-- Copyright: (C) 2014 EURL Tweag
+--
+
 {-# LANGUAGE OverloadedStrings #-}
 module System.ZMQ4.Utils
   ( bindFromRangeRandom
