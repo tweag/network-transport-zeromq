@@ -17,7 +17,7 @@ import Text.Printf
 
 
 import           System.ZMQ4.Monadic
-      ( ZMQ 
+      ( ZMQ
       )
 import qualified System.ZMQ4.Monadic as M
 import           System.ZMQ4

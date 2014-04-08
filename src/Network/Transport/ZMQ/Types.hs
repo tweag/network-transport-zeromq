@@ -45,7 +45,7 @@ import Data.IORef
 import Data.IntMap (IntMap)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict  as M
-import           Data.Set 
+import           Data.Set
      ( Set
      )
 import           System.ZMQ4
@@ -154,7 +154,7 @@ data ValidZMQConnection = ValidZMQConnection
 
 data RemoteEndPoint = RemoteEndPoint
       { remoteEndPointAddress :: !EndPointAddress
-      , remoteEndPointState   :: !(MVar RemoteEndPointState) 
+      , remoteEndPointState   :: !(MVar RemoteEndPointState)
       , remoteEndPointOpened  :: !(IORef Bool)
       }
 
@@ -221,4 +221,3 @@ nextElementM' t me (Counter n m) =
   where
     n' = succ n
     mv = me n'
-
