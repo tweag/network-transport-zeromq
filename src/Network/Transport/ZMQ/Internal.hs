@@ -1,5 +1,9 @@
+-- |
+-- Copyright: (C) 2014 EURL Tweag
+--
+
 {-# LANGUAGE OverloadedStrings #-}
-module System.ZMQ4.Utils
+module Network.Transport.ZMQ.Internal
   ( bindFromRangeRandom
   , bindFromRangeRandomM
   , authManager

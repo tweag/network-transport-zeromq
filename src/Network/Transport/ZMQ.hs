@@ -36,7 +36,8 @@ module Network.Transport.ZMQ
   -- $multicast
   ) where
 
-import Network.Transport.ZMQ.Types
+import Network.Transport.ZMQ.Internal.Types
+import qualified Network.Transport.ZMQ.Internal as ZMQ
 
 import           Control.Applicative
 import           Control.Concurrent
@@ -102,7 +103,6 @@ import           System.IO
 import           System.ZMQ4
       ( Context )
 import qualified System.ZMQ4 as ZMQ
-import qualified System.ZMQ4.Utils   as ZMQ
 
 -- import Text.Printf
 
