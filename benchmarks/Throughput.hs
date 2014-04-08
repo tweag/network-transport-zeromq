@@ -1,16 +1,31 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveDataTypeable #-}
-import System.Environment
-import Control.Monad
-import Control.Applicative
-import Control.Distributed.Process
-import Control.Distributed.Process.Node
-import Network.Transport.ZMQ (createTransport, defaultZMQParameters)
-import Data.Binary
+{-# LANGUAGE LambdaCase #-}
+import           Control.Applicative
+import           Control.Concurrent
+      ( forkOS
+      , threadDelay
+      )
+import           Control.Concurrent.MVar
+import           Control.Distributed.Process
+import           Control.Distributed.Process.Node
+import           Control.Monad
+      ( void
+      , forM_
+      , replicateM_
+      )
+import           Criterion.Measurement
+import           Data.Binary
 import           Data.ByteString.Char8 ( pack )
 import qualified Data.ByteString.Lazy as BSL
-import Data.Typeable
+import           Data.Typeable
+import           Text.Printf
 
-data SizedList a = SizedList { size :: Int , elems :: [a] }
+import           System.Environment
+
+import           Network.Transport.ZMQ (createTransport, defaultZMQParameters)
+
+data SizedList a = SizedList { size :: Int , _elems :: [a] }
   deriving (Typeable)
 
 instance Binary a => Binary (SizedList a) where
@@ -50,22 +65,50 @@ count (packets, sz) them = do
   us <- getSelfPid
   replicateM_ packets $ send them (nats sz)
   send them us
-  n' <- expect
-  liftIO $ print (packets * sz, n' == packets * sz)
+  _ <- expect :: Process Int
+  return ()
 
-initialProcess :: String -> Process ()
-initialProcess "SERVER" = do
+initialServer :: Process ()
+initialServer = do
   us <- getSelfPid
   liftIO $ BSL.writeFile "counter.pid" (encode us)
   counter
-initialProcess "CLIENT" = do
-  n <- liftIO getLine
+
+initialClient :: (Int, Int) -> Process ()
+initialClient n = do
   them <- liftIO $ decode <$> BSL.readFile "counter.pid"
-  count (read n) them
+  count n them
 
 main :: IO ()
-main = do
-  [role, host] <- getArgs
-  Right transport <- createTransport defaultZMQParameters (pack host)
-  node <- newLocalNode transport initRemoteTable
-  runProcess node $ initialProcess role
+main = getArgs >>= \case 
+  [] -> defaultBenchmark
+  [role, host] -> do 
+      Right transport <- createTransport defaultZMQParameters (pack host)
+      node <- newLocalNode transport initRemoteTable
+      case role of
+        "SERVER" -> runProcess node initialServer
+        "CLIENT" -> fmap read getLine >>= runProcess node . initialClient
+        _        -> error "wrong role"
+  _ -> error "either call benchmark with [SERVER|CLIENT] host or without arguments"
+
+
+
+defaultBenchmark :: IO ()
+defaultBenchmark = do
+  -- server
+  void . forkOS $ do
+    Right transport <- createTransport defaultZMQParameters "127.0.0.1"
+    node <- newLocalNode transport initRemoteTable
+    runProcess node $ initialServer
+  
+  threadDelay 1000000
+  e <- newEmptyMVar
+  void . forkOS $ do
+    putStrLn "packet size  time\n---          ---\n"
+    forM_ [1,10,100,200,600,800,1000,2000,4000] $ \i -> do
+        Right transport <- createTransport defaultZMQParameters "127.0.0.1"
+        node <- newLocalNode transport initRemoteTable
+        d <- time_ $ runProcess node $ initialClient (1000,i)
+        printf "%-8i %10.4f\n" i d
+    putMVar e ()
+  takeMVar e
