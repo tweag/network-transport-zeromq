@@ -1,7 +1,12 @@
-network-transport-zeromq
-========================
+# Cloud Haskell over ØMQ
 
+[![Hackage package][Hackage Version Image]][Hackage package]
 [![Build Status][Build Status Image]][Build Status]
+
+[Hackage Version Image]: http://img.shields.io/hackage/v/network-transport-zeromq.svg
+[Hackage package]: http://hackage.haskell.org/package/network-transport-zeromq
+[Build Status Image]: https://secure.travis-ci.org/tweag/network-transport-zeromq.svg?branch=master
+[Build Status]: http://travis-ci.org/tweag/network-transport-zeromq
 
 [network-transport][network-transport] backend based on the
 [ØMQ][zeromq] brokerless protocol. This implementation makes it
@@ -16,8 +21,6 @@ makes it possible for a wealth of higher-level libraries such as
 communicate over ØMQ seamlessly, with little to no modification
 necessary.
 
-[Build Status Image]: https://secure.travis-ci.org/tweag/network-transport-zeromq.png?branch=master
-[Build Status]: http://travis-ci.org/tweag/network-transport-zeromq
 [network-transport]: http://hackage.haskell.org/package/network-transport
 [distributed-process]: http://hackage.haskell.org/package/distributed-process
 [hdph]: http://hackage.haskell.org/package/hdph
