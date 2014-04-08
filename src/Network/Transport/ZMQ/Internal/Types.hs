@@ -4,7 +4,7 @@
 
 module Network.Transport.ZMQ.Internal.Types
   ( ZMQParameters(..)
-  , ZMQAuthType(..)
+  , AuthMethod(..)
   , defaultZMQParameters
     -- * Internal types
   , ZMQTransport(..)
@@ -60,7 +60,7 @@ import qualified System.ZMQ4 as ZMQ
 -- | Parameters for ZeroMQ connection.
 data ZMQParameters = ZMQParameters
   { highWaterMark     :: Word64 -- uint64_t
-  , authorizationType :: ZMQAuthType
+  , authMethod        :: AuthMethod
   , minPort           :: Int
   , maxPort           :: Int
   , maxTries          :: Int
@@ -69,17 +69,17 @@ data ZMQParameters = ZMQParameters
 defaultZMQParameters :: ZMQParameters
 defaultZMQParameters = ZMQParameters
     { highWaterMark     = 0
-    , authorizationType = ZMQNoAuth
+    , authMethod        = NoAuth
     , minPort           = 40000
     , maxPort           = 60000
     , maxTries          = 10000
     }
 
-data ZMQAuthType
-  = ZMQNoAuth
-  | ZMQAuthPlain
-    { zmqAuthPlainPassword :: ByteString
-    , zmqAutnPlainUserName :: ByteString
+data AuthMethod
+  = NoAuth
+  | AuthPlain
+    { authPlainPassword :: ByteString
+    , authPlainUserName :: ByteString
     }
 
 type TransportAddress = ByteString
