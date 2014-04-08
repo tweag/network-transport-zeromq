@@ -1,3 +1,7 @@
+-- |
+-- Copyright: (C) 2014 EURL Tweag
+--
+
 {-# LANGUAGE OverloadedStrings #-}
 module System.ZMQ4.Utils
   ( bindFromRangeRandom
@@ -17,7 +21,7 @@ import Text.Printf
 
 
 import           System.ZMQ4.Monadic
-      ( ZMQ 
+      ( ZMQ
       )
 import qualified System.ZMQ4.Monadic as M
 import           System.ZMQ4
