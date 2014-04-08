@@ -66,10 +66,10 @@ also passing, except monitoring and connection failure tests.
 Credits
 -------
 
-![Tweag I/O](http://tweag.io/images/tm/logo.png)
+![Tweag I/O](http://i.imgur.com/0HK8X4y.png)
 
 network-transport-zeromq is maintained and funded by [Tweag
-I/O](http://tweag.io/)
+I/O](http://tweag.io/).
 
 The names and logos for Tweag I/O are trademarks of EURL Tweag.
 
