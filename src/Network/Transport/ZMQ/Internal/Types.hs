@@ -2,7 +2,6 @@
 -- Copyright: (C) 2014 EURL Tweag
 --
 
-{-# LANGUAGE LambdaCase #-}
 module Network.Transport.ZMQ.Internal.Types
     ( ZMQParameters(..)
     , ZMQAuthType(..)
