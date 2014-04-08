@@ -4,7 +4,7 @@
 -- Licese:     BSD-3
 --
 {-# LANGUAGE LambdaCase #-}
-module Network.Transport.ZMQ.Types
+module Network.Transport.ZMQ.Internal.Types
     ( ZMQParameters(..)
     , ZMQAuthType(..)
     , defaultZMQParameters

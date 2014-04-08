@@ -36,7 +36,7 @@ module Network.Transport.ZMQ
   -- $multicast
   ) where
 
-import Network.Transport.ZMQ.Types
+import Network.Transport.ZMQ.Internal.Types
 
 import           Control.Applicative
 import           Control.Concurrent
