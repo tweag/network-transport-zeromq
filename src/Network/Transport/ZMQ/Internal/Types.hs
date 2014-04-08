@@ -3,37 +3,37 @@
 --
 
 module Network.Transport.ZMQ.Internal.Types
-    ( ZMQParameters(..)
-    , ZMQAuthType(..)
-    , defaultZMQParameters
-      -- * Internal types
-    , ZMQTransport(..)
-    , TransportState(..)
-    , ValidTransportState(..)
-      -- ** RemoteEndPoint
-    , RemoteEndPoint(..)
-    , RemoteEndPointState(..)
-    , ValidRemoteEndPoint(..)
-    , ClosingRemoteEndPoint(..)
-      -- ** LocalEndPoint
-    , LocalEndPoint(..)
-    , LocalEndPointState(..)
-    , ValidLocalEndPoint(..)
-      -- ** ZeroMQ connection
-    , ZMQConnection(..)
-    , ZMQConnectionState(..)
-    , ValidZMQConnection(..)
-      -- ** ZeroMQ multicast
-    , ZMQMulticastGroup(..)
-    , MulticastGroupState(..)
-    , ValidMulticastGroup(..)
-      -- * Internal data structures
-    , Counter(..)
-    , nextElement
-    , nextElement'
-    , nextElementM
-    , nextElementM'
-    ) where
+  ( ZMQParameters(..)
+  , ZMQAuthType(..)
+  , defaultZMQParameters
+    -- * Internal types
+  , ZMQTransport(..)
+  , TransportState(..)
+  , ValidTransportState(..)
+    -- ** RemoteEndPoint
+  , RemoteEndPoint(..)
+  , RemoteEndPointState(..)
+  , ValidRemoteEndPoint(..)
+  , ClosingRemoteEndPoint(..)
+    -- ** LocalEndPoint
+  , LocalEndPoint(..)
+  , LocalEndPointState(..)
+  , ValidLocalEndPoint(..)
+    -- ** ZeroMQ connection
+  , ZMQConnection(..)
+  , ZMQConnectionState(..)
+  , ValidZMQConnection(..)
+    -- ** ZeroMQ multicast
+  , ZMQMulticastGroup(..)
+  , MulticastGroupState(..)
+  , ValidMulticastGroup(..)
+    -- * Internal data structures
+  , Counter(..)
+  , nextElement
+  , nextElement'
+  , nextElementM
+  , nextElementM'
+  ) where
 
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
