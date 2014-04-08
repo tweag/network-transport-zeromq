@@ -277,9 +277,9 @@ createTransportEx :: ZMQParameters    -- ^ Transport features.
                   -> IO (Either (TransportError Void) (ZMQTransport, Transport))
 createTransportEx params host = do
     ctx       <- ZMQ.context
-    mtid <- case authMethod params of
-              AuthPlain user pass -> Just <$> ZMQ.authManager ctx user pass
-              _ -> return Nothing
+    mtid <- Traversable.sequenceA $
+            fmap (\(AuthPlain user pass) -> ZMQ.authManager ctx user pass) $
+                 authMethod params
     mcl  <- newIORef IntMap.empty
     transport <- ZMQTransport
     	<$> pure addr
@@ -362,8 +362,8 @@ endPointCreate params ctx addr = do
     em <- try $ do
       pull <- ZMQ.socket ctx ZMQ.Pull
       case authMethod params of
-          NoAuth -> return ()
-          AuthPlain{} -> do
+          Nothing -> return ()
+          Just AuthPlain{} -> do
               ZMQ.setPlainServer True pull
       ZMQ.setSendHighWM (ZMQ.restrict (highWaterMark params)) pull
       port <- ZMQ.bindFromRangeRandom pull addr (minPort params) (maxPort params) (maxTries params)
@@ -729,8 +729,8 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
     create v m = do
       push <- ZMQ.socket ctx ZMQ.Push
       case authMethod params of
-          NoAuth -> return ()
-          AuthPlain p u -> do
+          Nothing -> return ()
+          Just (AuthPlain p u) -> do
               ZMQ.setPlainPassword (ZMQ.restrict p) push
               ZMQ.setPlainUserName (ZMQ.restrict u) push
       state <- newMVar . RemoteEndPointPending =<< newIORef []
