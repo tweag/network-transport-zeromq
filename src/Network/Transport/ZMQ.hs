@@ -1,7 +1,7 @@
 -- |
--- Copyright: (C) 2013 EURL Tweag
+-- Copyright: (C) 2014 EURL Tweag
 --
--- 0MQ implemmentation of the transport layer.
+-- 0MQ implemmentation of the network-transport API.
 --
 -- The 0MQ implementation guarantees that only a single connection (socket) will
 -- be used between endpoints, provided that the addresses specified are
