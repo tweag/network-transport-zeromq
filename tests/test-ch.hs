@@ -16,13 +16,6 @@ import Network.Transport.ZMQ
   , defaultZMQParameters
   , breakConnection
   )
-import Control.Concurrent.MVar
-import Control.Concurrent.STM
-import Control.Concurrent.STM.TMChan
-import qualified Data.Map as Map
-import qualified Data.ByteString.Char8 as B
-import Network.Transport
-import Network.Transport.ZMQ.Types
 import Test.Framework (defaultMain)
 
 main :: IO ()

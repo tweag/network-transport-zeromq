@@ -83,7 +83,7 @@ main = finish <=< trySome $ do
         
         putStr "Auth:"
         Right tr2 <- createTransport
-                       defaultZMQParameters {authorizationType=ZMQAuthPlain "user" "password"}
+                       defaultZMQParameters {authMethod=Just $ AuthPlain "user" "password"}
                        "127.0.0.1"
         Right ep3 <- newEndPoint tr2
         Right ep4 <- newEndPoint tr2
