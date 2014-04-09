@@ -1,13 +1,21 @@
+{-# LANGUAGE LambdaCase, OverloadedStrings #-}
+module Channels where
+
 -- | Like Latency, but creating lots of channels
+
 import System.Environment
-import Control.Monad
+import Control.Monad (void, forM_, forever, replicateM_)
+import Control.Concurrent.MVar
+import Control.Concurrent (forkOS, threadDelay)
 import Control.Applicative
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
-import Network.Transport.ZMQ (createTransport, defaultZMQParameters)
+import Criterion.Measurement
 import Data.Binary (encode, decode)
 import Data.ByteString.Char8 (pack)
+import Network.Transport.ZMQ (createTransport, defaultZMQParameters)
 import qualified Data.ByteString.Lazy as BSL
+import Text.Printf
 
 pingServer :: Process ()
 pingServer = forever $ do
@@ -22,21 +30,43 @@ pingClient n them = do
     (sc, rc) <- newChan :: Process (SendPort (), ReceivePort ())
     send them sc
     receiveChan rc
-  liftIO . putStrLn $ "Did " ++ show n ++ " pings"
 
-initialProcess :: String -> Process ()
-initialProcess "SERVER" = do
+initialServer :: Process ()
+initialServer = do
   us <- getSelfPid
   liftIO $ BSL.writeFile "pingServer.pid" (encode us)
   pingServer
-initialProcess "CLIENT" = do
-  n <- liftIO $ getLine
+
+initialClient :: Int -> Process ()
+initialClient n = do
   them <- liftIO $ decode <$> BSL.readFile "pingServer.pid"
-  pingClient (read n) them
+  pingClient n them
 
 main :: IO ()
-main = do
-  [role, host] <- getArgs
-  Right transport <- createTransport defaultZMQParameters (pack host)
-  node <- newLocalNode transport initRemoteTable
-  runProcess node $ initialProcess role
+main = getArgs >>= \case
+    [] -> defaultBench 
+    [role, host] -> do
+       Right transport <- createTransport defaultZMQParameters (pack host)
+       node <- newLocalNode transport initRemoteTable
+       case role of
+         "SERVER" -> runProcess node initialServer
+         "CLIENT" -> fmap read getLine >>= runProcess node .  initialClient
+         _       -> error "Role should be either SERVER or CLIENT"
+    _ -> error "either call benchmark with [SERVER|CLIENT] host or without arguments"
+  where
+    defaultBench = do
+      void . forkOS $ do
+        Right transport <- createTransport defaultZMQParameters "127.0.0.1"
+        node <- newLocalNode transport initRemoteTable
+        runProcess node $ initialServer
+      threadDelay 1000000
+      e <- newEmptyMVar
+      void . forkOS $ do
+        putStrLn "pings        time\n---          ---\n"
+        forM_ [100,200,600,800,1000,2000,5000,8000,10000] $ \i -> do
+            Right transport <- createTransport defaultZMQParameters "127.0.0.1"
+            node <- newLocalNode transport initRemoteTable
+            d <- time_ (runProcess node $ initialClient i)
+            printf "%-8i %10.4f\n" i d
+        putMVar e ()
+      takeMVar e

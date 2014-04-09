@@ -14,8 +14,8 @@ Source-repository head
   Type: git
   Location: https://github.com/tweag/network-transport-zeromq
 
-flag benchmarks
-  description: build benchmarks
+flag install-benchmarks
+  description: Install benchmarks executables (default benchmarks can be triggered during build using \-\-enable-benchmarks option).
   default:     False
 
 flag unsafe
@@ -139,9 +139,50 @@ Test-Suite test-ch-stat
   HS-Source-Dirs:    tests
   default-language:  Haskell2010
 
+benchmark bench-channels-local
+  type:              exitcode-stdio-1.0
+  main-is:           Channels.hs
+  build-depends:     base >= 4.4 && < 5,
+                     network-transport-zeromq,
+                     bytestring,
+                     binary,
+                     distributed-process,
+                     criterion
+  hs-source-dirs:    benchmarks
+  ghc-options:       -O2 -Wall -threaded
+  default-language:  Haskell2010
 
+benchmark bench-latency-local
+  type:              exitcode-stdio-1.0
+  main-is:           Latency.hs
+  build-depends:     base >= 4.4 && < 5,
+                     network-transport-zeromq,
+                     bytestring,
+                     binary,
+                     distributed-process,
+                     criterion
+  hs-source-dirs:    benchmarks
+  ghc-options:       -O2 -Wall -threaded
+  default-language:  Haskell2010
 
---- benchmark files
+benchmark bench-throughput-local
+  type:              exitcode-stdio-1.0
+  main-is:           Throughput.hs
+  build-depends:     base >= 4.4 && < 5,
+                     network-transport-zeromq,
+                     bytestring,
+                     binary,
+                     distributed-process,
+                     criterion
+  hs-source-dirs:    benchmarks
+  ghc-options:       -O2 -Wall -threaded
+  default-language:  Haskell2010
+  default-extensions: BangPatterns
+
+-- Installable benchmark executables, so as to allow passing arguments
+-- to the benchmarks on the command line and hence run more complex
+-- benchmarks over several hosts.
+
 executable bench-dp-latency
   main-is: Latency.hs
   build-depends:     base >= 4.4 && < 5,
@@ -150,14 +191,15 @@ executable bench-dp-latency
                      binary,
                      distributed-process
   hs-source-dirs:    benchmarks
-  if flag(benchmarks)
+  ghc-options:       -O2 -Wall
+  if flag(install-benchmarks)
     buildable:       True
   else
     buildable:       False
   default-language:  Haskell2010
 
-Executable bench-dp-throughput
-  if flag(benchmarks)
+executable bench-dp-throughput
+  if flag(install-benchmarks)
     Build-Depends:   base >= 4.4 && < 5,
                      distributed-process,
                      network-transport-zeromq,
@@ -170,9 +212,10 @@ Executable bench-dp-throughput
   hs-source-dirs:    benchmarks
   ghc-options:       -Wall
   default-extensions:        BangPatterns
+  default-language:  Haskell2010
 
-Executable bench-dp-channels
-    if flag(benchmarks)
+executable bench-dp-channels
+    if flag(install-benchmarks)
       Build-Depends:   base >= 4.4 && < 5,
                        distributed-process,
                        network-transport-zeromq,
@@ -183,5 +226,6 @@ Executable bench-dp-channels
       buildable: False
     main-is:           Channels.hs
     hs-source-dirs:    benchmarks
-    ghc-options:       -Wall
-    default-extensions:        BangPatterns
+    ghc-options:       -Wall -O2 -Wall -threaded
+    default-extensions: BangPatterns
+    default-language:   Haskell2010
