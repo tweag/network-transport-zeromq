@@ -137,9 +137,50 @@ Test-Suite test-ch-stat
   HS-Source-Dirs:    tests
   default-language:  Haskell2010
 
+benchmark bench-channels-local
+  type:              exitcode-stdio-1.0
+  main-is:           Channels.hs
+  build-depends:     base >= 4.4 && < 5,
+                     network-transport-zeromq,
+                     bytestring,
+                     binary,
+                     distributed-process,
+                     criterion
+  hs-source-dirs:    benchmarks
+  ghc-options:       -O2 -Wall -threaded
+  default-language:  Haskell2010
 
+benchmark bench-latency-local
+  type:              exitcode-stdio-1.0
+  main-is:           Latency.hs
+  build-depends:     base >= 4.4 && < 5,
+                     network-transport-zeromq,
+                     bytestring,
+                     binary,
+                     distributed-process,
+                     criterion
+  hs-source-dirs:    benchmarks
+  ghc-options:       -O2 -Wall -threaded
+  default-language:  Haskell2010
 
---- benchmark files
+benchmark bench-throughput-local
+  type:              exitcode-stdio-1.0
+  main-is:           Throughput.hs
+  build-depends:     base >= 4.4 && < 5,
+                     network-transport-zeromq,
+                     bytestring,
+                     binary,
+                     distributed-process,
+                     criterion
+  hs-source-dirs:    benchmarks
+  ghc-options:       -O2 -Wall -threaded
+  default-language:  Haskell2010
+  default-extensions: BangPatterns
+
+-- Installable benchmark executables, so as to allow passing arguments
+-- to the benchmarks on the command line and hence run more complex
+-- benchmarks over several hosts.
+
 executable bench-dp-latency
   main-is: Latency.hs
   build-depends:     base >= 4.4 && < 5,
@@ -186,43 +227,3 @@ executable bench-dp-channels
     ghc-options:       -Wall -O2 -Wall -threaded
     default-extensions: BangPatterns
     default-language:   Haskell2010
-
-benchmark bench-channels-local
-  type:              exitcode-stdio-1.0
-  main-is:           Channels.hs
-  build-depends:     base >= 4.4 && < 5,
-                     network-transport-zeromq,
-                     bytestring,
-                     binary,
-                     distributed-process,
-                     criterion
-  hs-source-dirs:    benchmarks
-  ghc-options:       -O2 -Wall -threaded
-  default-language:  Haskell2010
-
-benchmark bench-latency-local
-  type:              exitcode-stdio-1.0
-  main-is:           Latency.hs
-  build-depends:     base >= 4.4 && < 5,
-                     network-transport-zeromq,
-                     bytestring,
-                     binary,
-                     distributed-process,
-                     criterion
-  hs-source-dirs:    benchmarks
-  ghc-options:       -O2 -Wall -threaded
-  default-language:  Haskell2010
-
-benchmark bench-throughput-local
-  type:              exitcode-stdio-1.0
-  main-is:           Throughput.hs
-  build-depends:     base >= 4.4 && < 5,
-                     network-transport-zeromq,
-                     bytestring,
-                     binary,
-                     distributed-process,
-                     criterion
-  hs-source-dirs:    benchmarks
-  ghc-options:       -O2 -Wall -threaded
-  default-language:  Haskell2010
-  default-extensions: BangPatterns
