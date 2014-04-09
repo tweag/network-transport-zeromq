@@ -14,8 +14,8 @@ Source-repository head
   Type: git
   Location: https://github.com/tweag/network-transport-zeromq
 
-flag benchmarks
-  description: build benchmarks executables (default benchmarks can be triggered by \-\-enable-benchmarks option)
+flag install-benchmarks
+  description: Install benchmarks executables (default benchmarks can be triggered during build using \-\-enable-benchmarks option).
   default:     False
 
 flag unsafe
@@ -149,14 +149,14 @@ executable bench-dp-latency
                      distributed-process
   hs-source-dirs:    benchmarks
   ghc-options:       -O2 -Wall
-  if flag(benchmarks)
+  if flag(install-benchmarks)
     buildable:       True
   else
     buildable:       False
   default-language:  Haskell2010
 
 executable bench-dp-throughput
-  if flag(benchmarks)
+  if flag(install-benchmarks)
     Build-Depends:   base >= 4.4 && < 5,
                      distributed-process,
                      network-transport-zeromq,
@@ -172,7 +172,7 @@ executable bench-dp-throughput
   default-language:  Haskell2010
 
 executable bench-dp-channels
-    if flag(benchmarks)
+    if flag(install-benchmarks)
       Build-Depends:   base >= 4.4 && < 5,
                        distributed-process,
                        network-transport-zeromq,
@@ -226,5 +226,3 @@ benchmark bench-throughput-local
   ghc-options:       -O2 -Wall -threaded
   default-language:  Haskell2010
   default-extensions: BangPatterns
-
-
