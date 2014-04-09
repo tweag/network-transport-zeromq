@@ -10,5 +10,5 @@ before_install:
     cabal update
 
 install:
-    cabal install --dependencies-only --enable-tests
+    cabal install --dependencies-only
     cabal install 
