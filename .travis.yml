@@ -4,7 +4,7 @@ ghc:
 # - 7.4
 
 before_install:
-    - sudo add-apt-repository ppa:chris-lea/zeromq
+    - sudo add-apt-repository ppa:chris-lea/zeromq -y
     - sudo apt-get update
     - sudo apt-get install cabal-install zeromq3 zeromq3-dev
     - cabal update
