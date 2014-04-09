@@ -6,7 +6,7 @@ ghc:
 before_install:
     - sudo add-apt-repository ppa:chris-lea/zeromq -y
     - sudo apt-get update
-    - sudo apt-get install zeromq3
+    - sudo apt-get install libzmq3 libzmq3-dev
     - cabal update
 
 install:
