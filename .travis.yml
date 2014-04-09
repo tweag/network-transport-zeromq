@@ -23,3 +23,8 @@ install:
     - cabal install --dependencies-only --constraint=binary==0.7.1.0
 
     - cabal install 
+
+test:
+    - cabal install --dependencies-only --enable-tests
+    - cabal build
+    - cabal test
