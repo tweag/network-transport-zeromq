@@ -22,7 +22,7 @@ bindRandomPort :: Socket t
                -> String -- ^ Address
                -> IO Int
 bindRandomPort sock addr = do
-    bind sock $ "tcp://"++addr++":0"
+    bind sock $ addr++":0"
     fmap (read . last . split (/=':')) $ lastEndpoint sock
 
 -- | One possible password authentification
