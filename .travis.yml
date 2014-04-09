@@ -10,7 +10,7 @@ before_install:
     - cabal update
 
 install:
-    - cabal sandbox --init
+    - cabal sandbox init
 
     - |
       git clone git://github.com/haskell-distributed/network-transport
