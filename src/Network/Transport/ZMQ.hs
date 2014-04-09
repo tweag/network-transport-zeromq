@@ -366,7 +366,7 @@ endPointCreate params ctx addr = do
           Just AuthPlain{} -> do
               ZMQ.setPlainServer True pull
       ZMQ.setSendHighWM (ZMQ.restrict (highWaterMark params)) pull
-      port <- ZMQ.bindFromRangeRandom pull addr (minPort params) (maxPort params) (maxTries params)
+      port <- ZMQ.bindRandomPort pull addr
       return (port, pull)
     case em of
       Right (port, pull) -> (do
@@ -949,7 +949,7 @@ unsafeConfigurePush zmqt from to f = withMVar (_transportState zmqt) $ \case
     TransportClosed -> return ()
 
 apiNewMulticastGroup :: ZMQParameters -> ZMQTransport -> LocalEndPoint -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
-apiNewMulticastGroup params zmq lep = withMVar (_transportState zmq) $ \case
+apiNewMulticastGroup _params zmq lep = withMVar (_transportState zmq) $ \case
   TransportClosed -> return $ Left $ TransportError NewMulticastGroupFailed "Transport is closed."
   TransportValid vt -> modifyMVar (localEndPointState lep) $ \case
     LocalEndPointClosed -> return (LocalEndPointClosed, Left $ TransportError NewMulticastGroupFailed "Transport is closed.")
@@ -995,9 +995,9 @@ apiNewMulticastGroup params zmq lep = withMVar (_transportState zmq) $ \case
   where
     mkPublisher vt = do
       pub <- ZMQ.socket (_transportContext vt) ZMQ.Pub
-      portPub <- ZMQ.bindFromRangeRandom pub (B8.unpack $ transportAddress zmq) (minPort params) (maxPort params) (maxTries params)
+      portPub <- ZMQ.bindRandomPort pub (B8.unpack $ transportAddress zmq)
       rep <- ZMQ.socket (_transportContext vt) ZMQ.Rep
-      portRep <- ZMQ.bindFromRangeRandom rep (B8.unpack $ transportAddress zmq) (minPort params) (maxPort params) (maxTries params)
+      portRep <- ZMQ.bindRandomPort rep (B8.unpack $ transportAddress zmq)
       wrkThread <- Async.async $ forever $ do
         msg <- ZMQ.receiveMulti rep
         ZMQ.sendMulti pub $ "" :| msg

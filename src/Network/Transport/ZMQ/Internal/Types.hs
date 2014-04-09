@@ -61,18 +61,12 @@ import qualified System.ZMQ4 as ZMQ
 data ZMQParameters = ZMQParameters
   { highWaterMark     :: Word64 -- uint64_t
   , authMethod        :: Maybe AuthMethod
-  , minPort           :: Int
-  , maxPort           :: Int
-  , maxTries          :: Int
   }
 
 defaultZMQParameters :: ZMQParameters
 defaultZMQParameters = ZMQParameters
     { highWaterMark     = 0
     , authMethod        = Nothing
-    , minPort           = 40000
-    , maxPort           = 60000
-    , maxTries          = 10000
     }
 
 data AuthMethod = AuthPlain

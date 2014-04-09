@@ -4,87 +4,54 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 module Network.Transport.ZMQ.Internal
-  ( bindFromRangeRandom
-  , bindFromRangeRandomM
+  ( bindRandomPort
   , authManager
   , closeZeroLinger
   )
   where
 
-import Control.Monad ( forever )
-import Control.Monad.Catch
-import Control.Concurrent.Async
-import Data.ByteString
-import Data.List.NonEmpty
-import System.Random ( randomRIO )
-import Text.Printf
+import           Control.Monad ( forever )
+import           Control.Concurrent.Async
+import           Data.ByteString ( ByteString )
+import           Data.List.NonEmpty ( NonEmpty(..) )
 
-
-import           System.ZMQ4.Monadic
-      ( ZMQ
-      )
-import qualified System.ZMQ4.Monadic as M
 import           System.ZMQ4
-      ( errno
-      )
-import qualified System.ZMQ4         as P
 
--- | Bind socket to the random port in a given range.
-bindFromRangeRandomM :: M.Socket z t
-                     -> String -- ^ Address
-                     -> Int    -- ^ Min port
-                     -> Int    -- ^ Max port
-                     -> Int    -- ^ Max tries
-                     -> ZMQ z Int
-bindFromRangeRandomM sock addr mI mA tr = go tr
-    where
-      go 0 = error "!" -- XXX: throw correct error
-      go x = do
-        port   <- M.liftIO $ randomRIO (mI,mA)
-        result <- try $ M.bind sock (printf "%s:%i" addr port)
-        case result of
-            Left e
-              | errno e == -1 -> go (x - 1)
-              | otherwise -> throwM e
-            Right () -> return port
-
-bindFromRangeRandom :: P.Socket t
-                    -> String -- ^ Address
-                    -> Int    -- ^ Min port
-                    -> Int    -- ^ Max port
-                    -> Int    -- ^ Max tries
-                    -> IO Int
-bindFromRangeRandom sock addr mI mA tr = go tr
-    where
-      go 0 = error "!" -- XXX: throw correct error
-      go x = do
-        port   <- randomRIO (mI,mA)
-        result <- try $ P.bind sock (printf "%s:%i" addr port)
-        case result of
-            Left e
-              | errno e == -1 -> go (x - 1)
-              | otherwise -> throwM e
-            Right () -> return port
+-- | Bind socket to the random port.
+bindRandomPort :: Socket t
+               -> String -- ^ Address
+               -> IO Int
+bindRandomPort sock addr = do
+    bind sock $ "tcp://"++addr++":0"
+    fmap (read . last . split (/=':')) $ lastEndpoint sock
 
 -- | One possible password authentification
-authManager :: P.Context -> ByteString -> ByteString -> IO (Async ())
+authManager :: Context -> ByteString -> ByteString -> IO (Async ())
 authManager ctx user pass = do
-    req <- P.socket ctx P.Rep
-    P.bind req "inproc://zeromq.zap.01"
+    req <- socket ctx Rep
+    bind req "inproc://zeromq.zap.01"
     async $ forever $ do
-      ("1.0":requestId:_domain:_ipAddress:_identity:mech:xs) <- P.receiveMulti req
+      ("1.0":requestId:_domain:_ipAddress:_identity:mech:xs) <- receiveMulti req
       case mech of
         "PLAIN" -> case xs of
            (pass':user':_)
              | user == user' && pass == pass' -> do
-                P.sendMulti req $ "1.0" :| [requestId, "200", "OK", "", ""]
-             | otherwise -> P.sendMulti req $ "1.0" :| [requestId, "400", "Credentials are not implemented", "", ""]
-           _ -> P.sendMulti req $ "1.0" :| [requestId, "500", "Method not implemented", "", ""]
-        _ -> P.sendMulti req $ "1.0" :| [requestId, "500", "Method not implemented", "", ""]
+                sendMulti req $ "1.0" :| [requestId, "200", "OK", "", ""]
+             | otherwise -> sendMulti req $ "1.0" :| [requestId, "400", "Credentials are not implemented", "", ""]
+           _ -> sendMulti req $ "1.0" :| [requestId, "500", "Method not implemented", "", ""]
+        _ -> sendMulti req $ "1.0" :| [requestId, "500", "Method not implemented", "", ""]
 
 
 -- | Close socket immideately.
-closeZeroLinger :: P.Socket a -> IO ()
+closeZeroLinger :: Socket a -> IO ()
 closeZeroLinger sock = do
-  P.setLinger (P.restrict (0::Int)) sock
-  P.close sock
+  setLinger (restrict (0::Int)) sock
+  close sock
+
+split :: (Char -> Bool) -> String -> [String]
+split f = go
+  where
+    go [] = []
+    go s  = case span f s of
+                (p,[]) -> [p]
+                (p,_:ss) -> p:go ss
