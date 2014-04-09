@@ -101,9 +101,9 @@ Test-Suite test-ch-core
                      stm,
                      stm-chans,
                      bytestring
-    Buildable:       False
-  else
     Buildable:       True
+  else
+    Buildable:       False
 
 Test-Suite test-ch-closure
   Type:              exitcode-stdio-1.0
@@ -124,9 +124,9 @@ Test-Suite test-ch-closure
                      stm,
                      stm-chans,
                      bytestring
-    Buildable:       False
-  else
     Buildable:       True
+  else
+    Buildable:       False
 
 Test-Suite test-ch-stat
   Type:              exitcode-stdio-1.0
@@ -147,9 +147,9 @@ Test-Suite test-ch-stat
                      stm,
                      stm-chans,
                      bytestring
-    Buildable:       False
-  else
     Buildable:       True
+  else
+    Buildable:       False
 
 benchmark bench-channels-local
   type:              exitcode-stdio-1.0
