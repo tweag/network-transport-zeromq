@@ -27,9 +27,5 @@ install:
 
     - cabal install --dependencies-only --constraint=binary==0.7.1.0
 
-    - cabal install 
+    - cabal install --dependencies-only --enable-tests --contrainstraints=binary==0.7.1.0
 
-test:
-    - cabal install --dependencies-only --enable-tests
-    - cabal build
-    - cabal test
