@@ -19,6 +19,6 @@ install:
       pushd network-transport
       git checkout -b development origin/development
       popd
-      cabal install ./network-transport --constraints=binary==0.7.1.0
+      cabal install ./network-transport --constraint=binary==0.7.1.0
 
     - cabal install 
