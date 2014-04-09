@@ -12,12 +12,13 @@ before_install:
 install:
     - cabal sandbox init
 
+    - cabal install --dependencies-only --contraints=binary==0.7.1.0
+
     - |
       git clone git://github.com/haskell-distributed/network-transport
       pushd network-transport
       git checkout -b development origin/development
       popd
-      cabal install ./network-transport
+      cabal install ./network-transport --contraints=binary==0.7.1.0
 
-    - cabal install --dependencies-only
     - cabal install 
