@@ -2,19 +2,29 @@
 module Main where
 
 import Control.Concurrent 
-import Control.Exception
-import Control.Monad ( (<=<), replicateM )
+import Control.Monad ( replicateM )
 
 import Data.IORef
 
 import Network.Transport
 import Network.Transport.ZMQ
-import System.Exit
+import Test.Tasty
+import Test.Tasty.HUnit
 
 main :: IO ()
-main = finish <=< trySome $ do
-    putStr "simple: "
-    Right (zmq, transport) <- createTransportEx defaultZMQParameters "127.0.0.1"
+main = defaultMain $
+  testGroup "API tests"
+      [ testCase "simple" test_simple
+      , testCase "connection break" test_connectionBreak
+      , testCase "test multicast" test_multicast
+      , testCase "authentification" test_auth
+      , testCase "connect to non existent host" test_nonexists
+      , testCase "test cleanup actions" test_cleanup
+      ]
+         
+test_simple :: IO ()
+test_simple = do
+    Right transport <- createTransport defaultZMQParameters "127.0.0.1"
     Right ep1 <- newEndPoint transport
     Right ep2 <- newEndPoint transport
     Right c1  <- connect ep1 (address ep2) ReliableOrdered defaultConnectHints
@@ -25,18 +35,22 @@ main = finish <=< trySome $ do
     close c2
     [ConnectionOpened 1 ReliableOrdered _, Received 1 ["321"], ConnectionClosed 1] <- replicateM 3 $ receive ep1
     [ConnectionOpened 1 ReliableOrdered _, Received 1 ["123"], ConnectionClosed 1] <- replicateM 3 $ receive ep2
-    putStrLn "OK"
+    closeTransport transport
 
-    putStr "connection break: "
+test_connectionBreak :: IO ()
+test_connectionBreak = do
+    Right (zmq, transport) <- createTransportEx defaultZMQParameters "127.0.0.1"
+    Right ep1 <- newEndPoint transport
+    Right ep2 <- newEndPoint transport
     Right ep3 <- newEndPoint transport
 
     Right c21  <- connect ep1 (address ep2) ReliableOrdered defaultConnectHints
     Right c22  <- connect ep2 (address ep1) ReliableOrdered defaultConnectHints
     Right c23  <- connect ep3 (address ep1) ReliableOrdered defaultConnectHints
 
-    ConnectionOpened 2 ReliableOrdered _ <- receive ep2
+    ConnectionOpened 1 ReliableOrdered _ <- receive ep2
+    ConnectionOpened 1 ReliableOrdered _ <- receive ep1
     ConnectionOpened 2 ReliableOrdered _ <- receive ep1
-    ConnectionOpened 3 ReliableOrdered _ <- receive ep1
 
     breakConnection zmq (address ep1) (address ep2)
 
@@ -50,60 +64,57 @@ main = finish <=< trySome $ do
     ErrorEvent (TransportError (EventConnectionLost _) _ ) <- receive ep1
     Right c24 <- connect ep3 (address ep1) ReliableOrdered defaultConnectHints
     Right ()  <- send c24 ["final"]
-    ConnectionOpened 4 ReliableOrdered _ <- receive ep1
-    Received 4 ["final"] <- receive ep1
-    putStrLn "OK"
-    multicast transport
-    putStr "Register cleanup test:"
-    Right (zmq1, transport1) <- createTransportEx defaultZMQParameters "127.0.0.1"
-    x <- newIORef 0
-    Just _ <- registerCleanupAction zmq1 (modifyIORef x (+1))
-    Just u <- registerCleanupAction zmq1 (modifyIORef x (+1))
+    ConnectionOpened 3 ReliableOrdered _ <- receive ep1
+    Received 3 ["final"] <- receive ep1
+    closeTransport transport
+
+test_multicast :: IO ()
+test_multicast = do
+    Right transport <- createTransport defaultZMQParameters "127.0.0.1"
+    Right ep1 <- newEndPoint transport
+    Right ep2 <- newEndPoint transport
+    Right g1 <- newMulticastGroup ep1
+    multicastSubscribe g1
+    threadDelay 1000000
+    multicastSend g1 ["test"]
+    ReceivedMulticast _ ["test"] <- receive ep1
+    Right g2 <- resolveMulticastGroup ep2 (multicastAddress g1)
+    multicastSubscribe g2
+    threadDelay 100000
+    multicastSend g2 ["test-2"]
+    ReceivedMulticast _ ["test-2"] <- receive ep2
+    ReceivedMulticast _ ["test-2"] <- receive ep1
+    return ()
+    
+test_auth :: IO ()
+test_auth = do
+    Right tr2 <- createTransport
+                   defaultZMQParameters {authMethod=Just $ AuthPlain "user" "password"}
+                   "127.0.0.1"
+    Right ep3 <- newEndPoint tr2
+    Right ep4 <- newEndPoint tr2
+    Right c3  <- connect ep3 (address ep4) ReliableOrdered defaultConnectHints
+    Right _   <- send c3 ["4456"]
+    [ConnectionOpened 1 ReliableOrdered _, Received 1 ["4456"]] <- replicateM 2 $ receive ep4
+    Right c4  <- connect ep3 (address ep4) ReliableOrdered defaultConnectHints
+    Right _   <- send c4 ["5567"]
+    [ConnectionOpened 2 ReliableOrdered _, Received 2 ["5567"]] <- replicateM 2 $ receive ep4
+    return ()
+
+test_nonexists :: IO ()
+test_nonexists = do
+    Right tr <- createTransport defaultZMQParameters "127.0.0.1"
+    Right ep <- newEndPoint tr
+    Left (TransportError ConnectFailed _) <- connect ep (EndPointAddress "tcp://129.0.0.1:7684") ReliableOrdered defaultConnectHints
+    closeTransport tr
+
+test_cleanup :: IO ()
+test_cleanup = do
+    Right (zmq, transport) <- createTransportEx defaultZMQParameters "127.0.0.1"
+    x <- newIORef (0::Int)
+    Just _ <- registerCleanupAction zmq (modifyIORef x (+1))
+    Just u <- registerCleanupAction zmq (modifyIORef x (+1))
     applyCleanupAction zmq u
-    closeTransport transport1
+    closeTransport transport
     2 <- readIORef x
-    putStrLn "OK"
-  where
-      multicast transport = do 
-        Right ep1 <- newEndPoint transport
-        Right ep2 <- newEndPoint transport
-        putStr "multicast: "
-        Right g1 <- newMulticastGroup ep1
-        multicastSubscribe g1
-        threadDelay 1000000
-        multicastSend g1 ["test"]
-        ReceivedMulticast _ ["test"] <- receive ep1
-        Right g2 <- resolveMulticastGroup ep2 (multicastAddress g1)
-        multicastSubscribe g2
-        threadDelay 100000
-        multicastSend g2 ["test-2"]
-        ReceivedMulticast _ ["test-2"] <- receive ep2
-        ReceivedMulticast _ ["test-2"] <- receive ep1
-        putStrLn "OK"
-        
-        putStr "Auth:"
-        Right tr2 <- createTransport
-                       defaultZMQParameters {authMethod=Just $ AuthPlain "user" "password"}
-                       "127.0.0.1"
-        Right ep3 <- newEndPoint tr2
-        Right ep4 <- newEndPoint tr2
-        Right c3  <- connect ep3 (address ep4) ReliableOrdered defaultConnectHints
-        Right _   <- send c3 ["4456"]
-        [ConnectionOpened 1 ReliableOrdered _, Received 1 ["4456"]] <- replicateM 2 $ receive ep4
-        Right c4  <- connect ep3 (address ep4) ReliableOrdered defaultConnectHints
-        Right _   <- send c4 ["5567"]
-        [ConnectionOpened 2 ReliableOrdered _, Received 2 ["5567"]] <- replicateM 2 $ receive ep4
-        putStrLn "OK"
-
-        putStr "Connect to non existing host: "
-        Left (TransportError ConnectFailed _) <- connect ep3 (EndPointAddress "tcp://128.0.0.1:7689") ReliableOrdered defaultConnectHints
-        putStrLn "OK"
-      finish (Left e) = print e >> exitWith (ExitFailure 1)
-      finish Right{} = exitWith ExitSuccess
-
-
-trySome :: IO a -> IO (Either SomeException a)
-trySome = try
-
-forkTry :: IO () -> IO ThreadId
-forkTry = forkIO
+    return ()
