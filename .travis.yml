@@ -2,3 +2,13 @@ language: haskell
 ghc:
   - 7.6
 # - 7.4
+
+before_install:
+    sudo add-apt-repository ppa:chris-lea/zeromq
+    sudo apt-get update
+    sudo apt-get install cabal-install zeromq3 zeromq3-dev
+    cabal update
+
+install:
+    cabal install --dependencies-only --enable-tests
+    cabal install 
