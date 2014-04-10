@@ -23,7 +23,11 @@ install:
       pushd network-transport-tests
       git checkout -b development origin/development
       popd
-      cabal install ./network-transport-tests --constraint=binary==0.7.1.0
+      git clone git://github.com/qnikst/zeromq-haskell
+      pushd zeromq-haskell
+      git checkout -b development origin/fix-last-endpoint
+      popd
+      cabal install ./zeromq-haskell --constraint=binary==0.7.1.0
 
     - cabal install --dependencies-only --constraint=binary==0.7.1.0
 
