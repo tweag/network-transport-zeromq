@@ -11,6 +11,10 @@ module Network.Transport.ZMQ.Internal
   where
 
 import           Control.Monad ( forever )
+import           Control.Monad.Catch
+      ( mask
+      , finally
+      )
 import           Control.Concurrent.Async
 import           Data.ByteString ( ByteString )
 import           Data.List.NonEmpty ( NonEmpty(..) )
@@ -22,7 +26,7 @@ bindRandomPort :: Socket t
                -> String -- ^ Address
                -> IO Int
 bindRandomPort sock addr = do
-    bind sock $ "tcp://"++addr++":0"
+    bind sock $ addr++":0"
     fmap (read . last . split (/=':')) $ lastEndpoint sock
 
 -- | One possible password authentification
@@ -30,17 +34,18 @@ authManager :: Context -> ByteString -> ByteString -> IO (Async ())
 authManager ctx user pass = do
     req <- socket ctx Rep
     bind req "inproc://zeromq.zap.01"
-    async $ forever $ do
-      ("1.0":requestId:_domain:_ipAddress:_identity:mech:xs) <- receiveMulti req
-      case mech of
-        "PLAIN" -> case xs of
-           (pass':user':_)
-             | user == user' && pass == pass' -> do
-                sendMulti req $ "1.0" :| [requestId, "200", "OK", "", ""]
-             | otherwise -> sendMulti req $ "1.0" :| [requestId, "400", "Credentials are not implemented", "", ""]
-           _ -> sendMulti req $ "1.0" :| [requestId, "500", "Method not implemented", "", ""]
-        _ -> sendMulti req $ "1.0" :| [requestId, "500", "Method not implemented", "", ""]
-
+    mask $ \restore ->
+      async $ (restore $ forever $ do
+          ("1.0":requestId:_domain:_ipAddress:_identity:mech:xs) <- receiveMulti req
+          case mech of
+            "PLAIN" -> case xs of
+               (pass':user':_)
+                 | user == user' && pass == pass' -> do
+                    sendMulti req $ "1.0" :| [requestId, "200", "OK", "", ""]
+                 | otherwise -> sendMulti req $ "1.0" :| [requestId, "400", "Credentials are not implemented", "", ""]
+               _ -> sendMulti req $ "1.0" :| [requestId, "500", "Method not implemented", "", ""]
+            _ -> sendMulti req $ "1.0" :| [requestId, "500", "Method not implemented", "", ""])
+            `finally` (close req)
 
 -- | Close socket immideately.
 closeZeroLinger :: Socket a -> IO ()

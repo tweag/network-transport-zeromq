@@ -303,7 +303,7 @@ apiTransportClose transport = mask_ $ do
           Just tid -> Async.cancel tid
         Foldable.sequence_ $ Map.map (apiCloseEndPoint transport) m
         Foldable.sequence_ =<< atomicModifyIORef' mcl (\x -> (IntMap.empty, x))
-	ZMQ.term ctx
+        ZMQ.term ctx
 
 apiNewEndPoint :: ZMQParameters -> ZMQTransport -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
 apiNewEndPoint params transport = do
@@ -381,7 +381,7 @@ endPointCreate params ctx addr = do
               putMVar (localEndPointState lep) $ LocalEndPointValid
                 (ValidLocalEndPoint chOut (Counter 0 Map.empty) Map.empty thread opened Map.empty)
               return $ Right (port, lep, chOut))
-          `onException` (ZMQ.close pull)
+          `onException` (ZMQ.closeZeroLinger pull)
       Left (_e::SomeException)  -> do
           return $ Left $ TransportError NewEndPointInsufficientResources "no free sockets"
   where
@@ -543,8 +543,7 @@ endPointCreate params ctx addr = do
             void $ Async.mapConcurrently (remoteEndPointClose False ourEp)
                  $ _localEndPointRemotes v
             Async.cancel tid
-            ZMQ.unbind pull (addr ++ ":" ++ show port)
-            ZMQ.close pull
+            ZMQ.closeZeroLinger pull
       void $ swapMVar (localEndPointState ourEp) LocalEndPointClosed
 
 apiSend :: ZMQConnection -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
@@ -1060,9 +1059,9 @@ apiDeleteMulticastGroupRemote mstate lep addr req _reqAddr sub _subAddr mtid = m
     MulticastGroupClosed -> return MulticastGroupClosed
     MulticastGroupValid v -> do
       modifyIORef (_multicastGroupSubscribed v) (const False)
-      ZMQ.close req
+      ZMQ.closeZeroLinger req
       ZMQ.unsubscribe sub ""
-      ZMQ.close sub
+      ZMQ.closeZeroLinger sub
       return MulticastGroupClosed
   modifyMVar_ (localEndPointState lep) $ \case
     LocalEndPointClosed -> return LocalEndPointClosed
@@ -1082,12 +1081,10 @@ apiDeleteMulticastGroupLocal mstate lep addr rep repAddr pub sub pubAddr mtid wr
        modifyIORef (_multicastGroupSubscribed v) (const False)
        ZMQ.sendMulti pub $ "C" :| []
        threadDelay 50000
-       ZMQ.unbind rep (B8.unpack repAddr)
-       ZMQ.close rep
+       ZMQ.closeZeroLinger rep
        ZMQ.unsubscribe sub ""
-       ZMQ.close sub
-       ZMQ.unbind pub (B8.unpack pubAddr)
-       ZMQ.close pub
+       ZMQ.closeZeroLinger sub
+       ZMQ.closeZeroLinger pub
        return MulticastGroupClosed
    modifyMVar_ (localEndPointState lep) $ \case
      LocalEndPointClosed -> return LocalEndPointClosed
