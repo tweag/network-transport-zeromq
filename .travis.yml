@@ -2,3 +2,30 @@ language: haskell
 ghc:
   - 7.6
 # - 7.4
+
+before_install:
+    - sudo add-apt-repository ppa:chris-lea/zeromq -y
+    - sudo apt-get update
+    - sudo apt-get install libzmq3 libzmq3-dev git
+    - cabal update
+
+install:
+    - cabal sandbox init
+
+
+    - |
+      git clone git://github.com/haskell-distributed/network-transport
+      pushd network-transport
+      git checkout -b development origin/development
+      popd
+      cabal install ./network-transport --constraint=binary==0.7.1.0
+      git clone git://github.com/haskell-distributed/network-transport-tests
+      pushd network-transport-tests
+      git checkout -b development origin/development
+      popd
+      cabal install ./network-transport-tests --constraint=binary==0.7.1.0
+
+    - cabal install --dependencies-only --constraint=binary==0.7.1.0
+
+    - cabal install --dependencies-only --enable-tests --constraint=binary==0.7.1.0
+
