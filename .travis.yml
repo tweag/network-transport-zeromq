@@ -27,9 +27,9 @@ install:
       pushd zeromq-haskell
       git checkout -b development origin/fix-last-endpoint
       popd
-      cabal install ./zeromq-haskell --constraint=binary==0.7.1.0 --constraint=ansi-terminal==0.6.1.1
-
-    - cabal install --dependencies-only --constraint=binary==0.7.1.0 --constraint=ansi-terminal==0.6.1.1
+      cabal sandbox add-source ./zeromq-haskell
+      cabal sandbox add-source ./network-transport
+      cabal sandbox add-source ./network-transport-tests
 
     - cabal install --dependencies-only --enable-tests --constraint=binary==0.7.1.0 --constraint=ansi-terminal==0.6.1.1
 
