@@ -18,7 +18,7 @@ install:
       pushd network-transport
       git checkout -b development origin/development
       popd
-      cabal install ./network-transport --constraint=binary==0.7.1.0
+      cabal install ./network-transport --constraint=binary==0.7.1.0 --constraint=ansi-terminal==0.6.1.1
       git clone git://github.com/haskell-distributed/network-transport-tests
       pushd network-transport-tests
       git checkout -b development origin/development
@@ -27,9 +27,9 @@ install:
       pushd zeromq-haskell
       git checkout -b development origin/fix-last-endpoint
       popd
-      cabal install ./zeromq-haskell --constraint=binary==0.7.1.0
+      cabal install ./zeromq-haskell --constraint=binary==0.7.1.0 --constraint=ansi-terminal==0.6.1.1
 
-    - cabal install --dependencies-only --constraint=binary==0.7.1.0
+    - cabal install --dependencies-only --constraint=binary==0.7.1.0 --constraint=ansi-terminal==0.6.1.1
 
-    - cabal install --dependencies-only --enable-tests --constraint=binary==0.7.1.0
+    - cabal install --dependencies-only --enable-tests --constraint=binary==0.7.1.0 --constraint=ansi-terminal==0.6.1.1
 
