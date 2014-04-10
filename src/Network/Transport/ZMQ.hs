@@ -543,7 +543,6 @@ endPointCreate params ctx addr = do
             void $ Async.mapConcurrently (remoteEndPointClose False ourEp)
                  $ _localEndPointRemotes v
             Async.cancel tid
-            ZMQ.unbind pull (addr ++ ":" ++ show port)
             ZMQ.closeZeroLinger pull
       void $ swapMVar (localEndPointState ourEp) LocalEndPointClosed
 
@@ -1082,11 +1081,9 @@ apiDeleteMulticastGroupLocal mstate lep addr rep repAddr pub sub pubAddr mtid wr
        modifyIORef (_multicastGroupSubscribed v) (const False)
        ZMQ.sendMulti pub $ "C" :| []
        threadDelay 50000
-       ZMQ.unbind rep (B8.unpack repAddr)
        ZMQ.closeZeroLinger rep
        ZMQ.unsubscribe sub ""
        ZMQ.closeZeroLinger sub
-       ZMQ.unbind pub (B8.unpack pubAddr)
        ZMQ.closeZeroLinger pub
        return MulticastGroupClosed
    modifyMVar_ (localEndPointState lep) $ \case
