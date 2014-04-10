@@ -339,6 +339,8 @@ apiCloseEndPoint :: ZMQTransport
                  -> LocalEndPoint
                  -> IO ()
 apiCloseEndPoint transport lep = mask_ $ do
+    -- we don't close endpoint here because other threads,
+    -- should be able to access local endpoint state
     old <- readMVar (localEndPointState lep)
     case old of
       LocalEndPointValid (ValidLocalEndPoint x _ _ threadId _ _) -> do
@@ -349,6 +351,7 @@ apiCloseEndPoint transport lep = mask_ $ do
         Async.cancel threadId
         void $ Async.waitCatch threadId
       LocalEndPointClosed -> return ()
+    void $ swapMVar (localEndPointState lep) LocalEndPointClosed
     modifyMVar_ (_transportState transport) $ \case
       TransportClosed  -> return TransportClosed
       TransportValid v -> return $ TransportValid
@@ -388,7 +391,7 @@ endPointCreate params ctx addr = do
 
     finalizer pull ourEp = forever $ do
       (cmd:_) <- ZMQ.receiveMulti pull
-      case decode' cmd of
+      mask_ $ case decode' cmd of
         MessageEndPointCloseOk theirAddress ->  getRemoteEndPoint ourEp theirAddress >>= \case
           Nothing -> return ()
           Just rep -> do
@@ -543,6 +546,7 @@ endPointCreate params ctx addr = do
             void $ Async.mapConcurrently (remoteEndPointClose False ourEp)
                  $ _localEndPointRemotes v
             Async.cancel tid
+            void $ Async.waitCatch tid
             ZMQ.closeZeroLinger pull
       void $ swapMVar (localEndPointState ourEp) LocalEndPointClosed
 
