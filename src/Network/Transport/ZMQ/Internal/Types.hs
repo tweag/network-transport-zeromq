@@ -7,7 +7,7 @@ module Network.Transport.ZMQ.Internal.Types
   , SecurityMechanism(..)
   , defaultZMQParameters
     -- * Internal types
-  , ZMQTransport(..)
+  , TransportInternals(..)
   , TransportState(..)
   , ValidTransportState(..)
     -- ** RemoteEndPoint
@@ -79,7 +79,7 @@ data SecurityMechanism
 type TransportAddress = ByteString
 
 -- | Transport data type.
-data ZMQTransport = ZMQTransport
+data TransportInternals = TransportInternals
   { transportAddress :: !TransportAddress
   -- ^ Transport address (used as identifier).
   , _transportState  :: !(MVar TransportState)
