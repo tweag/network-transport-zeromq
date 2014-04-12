@@ -22,7 +22,7 @@ module Network.Transport.ZMQ
   , defaultZMQParameters
   -- * Internals
   -- $internals
-  , createTransportEx
+  , createTransportExposeInternals
   , breakConnectionEndPoint
   , breakConnection
   , unsafeConfigurePush
@@ -266,16 +266,16 @@ instance Exception ZMQError
 
 -- | Create 0MQ based transport.
 createTransport :: ZMQParameters
-                -> ByteString     -- ^ Transport address (IP or hostname)
+                -> ByteString            -- ^ Transport address (IP or hostname)
                 -> IO (Either (TransportError Void) Transport)
-createTransport z b = fmap (fmap snd) (createTransportEx z b)
+createTransport z b = fmap (fmap snd) (createTransportExposeInternals z b)
 
--- | Create 'Transport' and export internal transport state that may be
--- used in API.
-createTransportEx :: ZMQParameters    -- ^ Transport features.
-                  -> ByteString       -- ^ Host name or IP address
-                  -> IO (Either (TransportError Void) (ZMQTransport, Transport))
-createTransportEx params host = do
+-- | You should probably not use this function (used for unit testing only)
+createTransportExposeInternals
+  :: ZMQParameters                       -- ^ Configuration parameters for ZeroMQ
+  -> ByteString                          -- ^ Host name or IP address
+  -> IO (Either (TransportError Void) (ZMQTransport, Transport))
+createTransportExposeInternals params host = do
     ctx       <- ZMQ.context
     mtid <- Traversable.sequenceA $
             fmap (\(SecurityPlain user pass) -> ZMQ.authManager ctx user pass) $

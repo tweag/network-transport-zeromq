@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Control.Concurrent 
+import Control.Concurrent
 import Control.Monad ( replicateM )
 
 import Data.IORef
@@ -21,7 +21,7 @@ main = defaultMain $
       , testCase "connect to non existent host" test_nonexists
       , testCase "test cleanup actions" test_cleanup
       ]
-         
+
 test_simple :: IO ()
 test_simple = do
     Right transport <- createTransport defaultZMQParameters "127.0.0.1"
@@ -39,7 +39,8 @@ test_simple = do
 
 test_connectionBreak :: IO ()
 test_connectionBreak = do
-    Right (zmq, transport) <- createTransportEx defaultZMQParameters "127.0.0.1"
+    Right (zmq, transport) <-
+      createTransportExposeInternals defaultZMQParameters "127.0.0.1"
     Right ep1 <- newEndPoint transport
     Right ep2 <- newEndPoint transport
     Right ep3 <- newEndPoint transport
@@ -111,7 +112,8 @@ test_nonexists = do
 
 test_cleanup :: IO ()
 test_cleanup = do
-    Right (zmq, transport) <- createTransportEx defaultZMQParameters "127.0.0.1"
+    Right (zmq, transport) <-
+      createTransportExposeInternals defaultZMQParameters "127.0.0.1"
     x <- newIORef (0::Int)
     Just _ <- registerCleanupAction zmq (modifyIORef x (+1))
     Just u <- registerCleanupAction zmq (modifyIORef x (+1))
