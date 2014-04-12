@@ -103,7 +103,7 @@ data ValidTransportState = ValidTransportState
 data LocalEndPoint = LocalEndPoint
   { localEndPointAddress :: !EndPointAddress
   , localEndPointState   :: !(MVar LocalEndPointState)
-  , localEndPointPort    :: !(Int)
+  , localEndPointPort    :: !Int
   }
 
 data LocalEndPointState
