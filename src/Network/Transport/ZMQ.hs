@@ -279,7 +279,7 @@ createTransportEx params host = do
     ctx       <- ZMQ.context
     mtid <- Traversable.sequenceA $
             fmap (\(AuthPlain user pass) -> ZMQ.authManager ctx user pass) $
-                 authMethod params
+                 zmqAuthMethod params
     mcl  <- newIORef IntMap.empty
     transport <- ZMQTransport
     	<$> pure addr
@@ -364,11 +364,11 @@ endPointCreate :: ZMQParameters
 endPointCreate params ctx addr = do
     em <- try $ do
       pull <- ZMQ.socket ctx ZMQ.Pull
-      case authMethod params of
+      case zmqAuthMethod params of
           Nothing -> return ()
           Just AuthPlain{} -> do
               ZMQ.setPlainServer True pull
-      ZMQ.setSendHighWM (ZMQ.restrict (highWaterMark params)) pull
+      ZMQ.setSendHighWM (ZMQ.restrict (zmqHighWaterMark params)) pull
       port <- ZMQ.bindRandomPort pull addr
       return (port, pull)
     case em of
@@ -731,7 +731,7 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
   where
     create v m = do
       push <- ZMQ.socket ctx ZMQ.Push
-      case authMethod params of
+      case zmqAuthMethod params of
           Nothing -> return ()
           Just (AuthPlain p u) -> do
               ZMQ.setPlainPassword (ZMQ.restrict p) push

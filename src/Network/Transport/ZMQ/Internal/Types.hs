@@ -59,14 +59,14 @@ import qualified System.ZMQ4 as ZMQ
 
 -- | Parameters for ZeroMQ connection.
 data ZMQParameters = ZMQParameters
-  { highWaterMark     :: Word64 -- uint64_t
-  , authMethod        :: Maybe AuthMethod
+  { zmqHighWaterMark     :: Word64 -- uint64_t
+  , zmqAuthMethod        :: Maybe AuthMethod
   }
 
 defaultZMQParameters :: ZMQParameters
 defaultZMQParameters = ZMQParameters
-    { highWaterMark     = 0
-    , authMethod        = Nothing
+    { zmqHighWaterMark     = 0
+    , zmqAuthMethod        = Nothing
     }
 
 data AuthMethod = AuthPlain
