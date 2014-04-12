@@ -85,12 +85,13 @@ test_multicast = do
     ReceivedMulticast _ ["test-2"] <- receive ep2
     ReceivedMulticast _ ["test-2"] <- receive ep1
     return ()
-    
+
 test_auth :: IO ()
 test_auth = do
-    Right tr2 <- createTransport
-                   defaultZMQParameters {authMethod=Just $ AuthPlain "user" "password"}
-                   "127.0.0.1"
+    Right tr2 <-
+      createTransport defaultZMQParameters{ zmqSecurityMechanism =
+                                              Just $ SecurityPlain "user" "password" }
+                      "127.0.0.1"
     Right ep3 <- newEndPoint tr2
     Right ep4 <- newEndPoint tr2
     Right c3  <- connect ep3 (address ep4) ReliableOrdered defaultConnectHints

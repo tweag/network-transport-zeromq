@@ -4,7 +4,7 @@
 
 module Network.Transport.ZMQ.Internal.Types
   ( ZMQParameters(..)
-  , AuthMethod(..)
+  , SecurityMechanism(..)
   , defaultZMQParameters
     -- * Internal types
   , ZMQTransport(..)
@@ -60,19 +60,21 @@ import qualified System.ZMQ4 as ZMQ
 -- | Parameters for ZeroMQ connection.
 data ZMQParameters = ZMQParameters
   { zmqHighWaterMark     :: Word64 -- uint64_t
-  , zmqAuthMethod        :: Maybe AuthMethod
+  , zmqSecurityMechanism :: Maybe SecurityMechanism
   }
 
 defaultZMQParameters :: ZMQParameters
 defaultZMQParameters = ZMQParameters
     { zmqHighWaterMark     = 0
-    , zmqAuthMethod        = Nothing
+    , zmqSecurityMechanism = Nothing
     }
 
-data AuthMethod = AuthPlain
-  { authPlainPassword :: ByteString
-  , authPlainUserName :: ByteString
-  }
+-- | A ZeroMQ "security mechanism".
+data SecurityMechanism
+  = SecurityPlain
+  { plainPassword :: ByteString
+  , plainUsername :: ByteString
+  } -- ^ Clear-text authentication, using a (username, password) pair.
 
 type TransportAddress = ByteString
 

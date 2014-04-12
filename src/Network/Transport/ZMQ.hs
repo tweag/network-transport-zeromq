@@ -18,7 +18,7 @@ module Network.Transport.ZMQ
   ( -- * Main API
     createTransport
   , ZMQParameters(..)
-  , AuthMethod(..)
+  , SecurityMechanism(..)
   , defaultZMQParameters
   -- * Internals
   -- $internals
@@ -278,8 +278,8 @@ createTransportEx :: ZMQParameters    -- ^ Transport features.
 createTransportEx params host = do
     ctx       <- ZMQ.context
     mtid <- Traversable.sequenceA $
-            fmap (\(AuthPlain user pass) -> ZMQ.authManager ctx user pass) $
-                 zmqAuthMethod params
+            fmap (\(SecurityPlain user pass) -> ZMQ.authManager ctx user pass) $
+                 zmqSecurityMechanism params
     mcl  <- newIORef IntMap.empty
     transport <- ZMQTransport
     	<$> pure addr
@@ -364,9 +364,9 @@ endPointCreate :: ZMQParameters
 endPointCreate params ctx addr = do
     em <- try $ do
       pull <- ZMQ.socket ctx ZMQ.Pull
-      case zmqAuthMethod params of
+      case zmqSecurityMechanism params of
           Nothing -> return ()
-          Just AuthPlain{} -> do
+          Just SecurityPlain{} -> do
               ZMQ.setPlainServer True pull
       ZMQ.setSendHighWM (ZMQ.restrict (zmqHighWaterMark params)) pull
       port <- ZMQ.bindRandomPort pull addr
@@ -731,9 +731,9 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
   where
     create v m = do
       push <- ZMQ.socket ctx ZMQ.Push
-      case zmqAuthMethod params of
+      case zmqSecurityMechanism params of
           Nothing -> return ()
-          Just (AuthPlain p u) -> do
+          Just (SecurityPlain p u) -> do
               ZMQ.setPlainPassword (ZMQ.restrict p) push
               ZMQ.setPlainUserName (ZMQ.restrict u) push
       state <- newMVar . RemoteEndPointPending =<< newIORef []
