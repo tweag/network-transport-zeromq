@@ -53,7 +53,6 @@ import           Control.Monad
       , forever
       , unless
       , join
-      , forM_
       , foldM
       , when
       , (<=<)
@@ -536,7 +535,7 @@ endPointCreate params ctx addr = do
             closeRemoteEndPoint ourEp rep state
       where
         ourAddr = localEndPointAddress ourEp
-    finalizeEndPoint ourEp port pull = do
+    finalizeEndPoint ourEp _port pull = do
       join $ withMVar (localEndPointState ourEp) $ \case
         LocalEndPointClosed  -> afterP ()
         LocalEndPointValid v -> do
@@ -1076,7 +1075,7 @@ apiDeleteMulticastGroupLocal :: MVar MulticastGroupState -> LocalEndPoint -> Mul
     -> ZMQ.Socket ZMQ.Rep -> ByteString -> ZMQ.Socket ZMQ.Pub -> ZMQ.Socket ZMQ.Sub -> ByteString -> Maybe (Async.Async ())
     -> Async.Async ()
     -> IO ()
-apiDeleteMulticastGroupLocal mstate lep addr rep repAddr pub sub pubAddr mtid wrk = mask_ $ do
+apiDeleteMulticastGroupLocal mstate lep addr rep _repAddr pub sub _pubAddr mtid wrk = mask_ $ do
    Foldable.traverse_ (\tid -> Async.cancel tid >> void (Async.waitCatch tid)) mtid
    void $ Async.cancel wrk >> Async.waitCatch wrk
    modifyMVar_ mstate $ \case
