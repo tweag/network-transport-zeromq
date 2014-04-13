@@ -201,8 +201,9 @@ benchmark bench-throughput-local
 -- benchmarks over several hosts.
 
 executable bench-dp-latency
-  main-is: Latency.hs
   ghc-options:       -O2 -Wall
+  main-is: Latency.hs
+  hs-source-dirs:    benchmarks
   if flag(install-benchmarks)
     build-depends:   base >= 4.4 && < 5,
                      network-transport-zeromq,
