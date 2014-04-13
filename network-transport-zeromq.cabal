@@ -3,9 +3,9 @@ version:             0.1.1.0
 synopsis:            ZeroMQ backend for network-transport
 license:             BSD3
 license-file:        LICENSE
-author:              Alexander Vershilov
-maintainer:          Alexander Vershilov <alexander.vershilov@tweag.io>
 copyright:           (c) 2014, EURL Tweag
+author:              Tweag I/O
+maintainer:          Alexander Vershilov <alexander.vershilov@tweag.io>
 category:            Network
 build-type:          Simple
 cabal-version:       >=1.10
