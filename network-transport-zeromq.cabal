@@ -1,6 +1,11 @@
 name:                network-transport-zeromq
 version:             0.1.1.0
 synopsis:            ZeroMQ backend for network-transport
+description:
+  Implementation of the
+  <http://hackage.haskell.org/package/network-transport network-transport>
+  API over ZeroMQ. This provides access to the wealth of transports implemented in ZeroMQ, such as in-process, inter-process, TCP, TPIC and multicast. Furthermore, this makes it possible to encrypt and authenticate clients using ZeroMQ's security mechanisms, and increase throughput using ZeroMQ's intelligent message batching.
+  .
 license:             BSD3
 license-file:        LICENSE
 copyright:           (c) 2014, EURL Tweag
