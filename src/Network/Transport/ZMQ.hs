@@ -18,11 +18,11 @@ module Network.Transport.ZMQ
   ( -- * Main API
     createTransport
   , ZMQParameters(..)
-  , AuthMethod(..)
+  , SecurityMechanism(..)
   , defaultZMQParameters
   -- * Internals
   -- $internals
-  , createTransportEx
+  , createTransportExposeInternals
   , breakConnectionEndPoint
   , breakConnection
   , unsafeConfigurePush
@@ -266,22 +266,22 @@ instance Exception ZMQError
 
 -- | Create 0MQ based transport.
 createTransport :: ZMQParameters
-                -> ByteString     -- ^ Transport address (IP or hostname)
+                -> ByteString            -- ^ Transport address (IP or hostname)
                 -> IO (Either (TransportError Void) Transport)
-createTransport z b = fmap (fmap snd) (createTransportEx z b)
+createTransport z b = fmap (fmap snd) (createTransportExposeInternals z b)
 
--- | Create 'Transport' and export internal transport state that may be
--- used in API.
-createTransportEx :: ZMQParameters    -- ^ Transport features.
-                  -> ByteString       -- ^ Host name or IP address
-                  -> IO (Either (TransportError Void) (ZMQTransport, Transport))
-createTransportEx params host = do
+-- | You should probably not use this function (used for unit testing only)
+createTransportExposeInternals
+  :: ZMQParameters                       -- ^ Configuration parameters for ZeroMQ
+  -> ByteString                          -- ^ Host name or IP address
+  -> IO (Either (TransportError Void) (TransportInternals, Transport))
+createTransportExposeInternals params host = do
     ctx       <- ZMQ.context
     mtid <- Traversable.sequenceA $
-            fmap (\(AuthPlain user pass) -> ZMQ.authManager ctx user pass) $
-                 authMethod params
+            fmap (\(SecurityPlain user pass) -> ZMQ.authManager ctx user pass) $
+                 zmqSecurityMechanism params
     mcl  <- newIORef IntMap.empty
-    transport <- ZMQTransport
+    transport <- TransportInternals
     	<$> pure addr
         <*> newMVar (TransportValid $ ValidTransportState ctx Map.empty mtid mcl)
     return $ Right (transport, Transport
@@ -292,7 +292,7 @@ createTransportEx params host = do
     addr = B.concat ["tcp://", host]
 
 -- Synchronous
-apiTransportClose :: ZMQTransport -> IO ()
+apiTransportClose :: TransportInternals -> IO ()
 apiTransportClose transport = mask_ $ do
     old <- swapMVar (_transportState transport) TransportClosed
     case old of
@@ -305,7 +305,7 @@ apiTransportClose transport = mask_ $ do
         Foldable.sequence_ =<< atomicModifyIORef' mcl (\x -> (IntMap.empty, x))
         ZMQ.term ctx
 
-apiNewEndPoint :: ZMQParameters -> ZMQTransport -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
+apiNewEndPoint :: ZMQParameters -> TransportInternals -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
 apiNewEndPoint params transport = do
     elep <- modifyMVar (_transportState transport) $ \case
        TransportClosed -> return (TransportClosed, Left $ TransportError NewEndPointFailed "Transport is closed.")
@@ -335,7 +335,7 @@ apiNewEndPoint params transport = do
     addr = transportAddress transport
 
 -- | Asynchronous operation, shutdown of the remote end point may take a while
-apiCloseEndPoint :: ZMQTransport
+apiCloseEndPoint :: TransportInternals
                  -> LocalEndPoint
                  -> IO ()
 apiCloseEndPoint transport lep = mask_ $ do
@@ -364,11 +364,11 @@ endPointCreate :: ZMQParameters
 endPointCreate params ctx addr = do
     em <- try $ do
       pull <- ZMQ.socket ctx ZMQ.Pull
-      case authMethod params of
+      case zmqSecurityMechanism params of
           Nothing -> return ()
-          Just AuthPlain{} -> do
+          Just SecurityPlain{} -> do
               ZMQ.setPlainServer True pull
-      ZMQ.setSendHighWM (ZMQ.restrict (highWaterMark params)) pull
+      ZMQ.setSendHighWM (ZMQ.restrict (zmqHighWaterMark params)) pull
       port <- ZMQ.bindRandomPort pull addr
       return (port, pull)
     case em of
@@ -731,9 +731,9 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
   where
     create v m = do
       push <- ZMQ.socket ctx ZMQ.Push
-      case authMethod params of
+      case zmqSecurityMechanism params of
           Nothing -> return ()
-          Just (AuthPlain p u) -> do
+          Just (SecurityPlain p u) -> do
               ZMQ.setPlainPassword (ZMQ.restrict p) push
               ZMQ.setPlainUserName (ZMQ.restrict u) push
       state <- newMVar . RemoteEndPointPending =<< newIORef []
@@ -888,7 +888,7 @@ trySome f = try f >>= \case
   Right x -> return $ Right x
 
 -- | Break endpoint connection, all endpoints that will be affected.
-breakConnection :: ZMQTransport
+breakConnection :: TransportInternals
                 -> EndPointAddress
                 -> EndPointAddress
                 -> IO ()
@@ -912,7 +912,7 @@ breakConnection zmqt _from to = Foldable.sequence_ <=<  withMVar (_transportStat
 
 -- | Break connection between two endpoints, other endpoints on the same
 -- remove will not be affected.
-breakConnectionEndPoint :: ZMQTransport
+breakConnectionEndPoint :: TransportInternals
                         -> EndPointAddress
                         -> EndPointAddress
                         -> IO ()
@@ -936,7 +936,7 @@ breakConnectionEndPoint zmqt from to = one from to >> one to from
       TransportClosed -> afterP ()
 
 -- | Configure socket after creation
-unsafeConfigurePush :: ZMQTransport
+unsafeConfigurePush :: TransportInternals
                     -> EndPointAddress
                     -> EndPointAddress
                     -> (ZMQ.Socket ZMQ.Push -> IO ())
@@ -951,7 +951,7 @@ unsafeConfigurePush zmqt from to f = withMVar (_transportState zmqt) $ \case
         LocalEndPointClosed   -> return ()
     TransportClosed -> return ()
 
-apiNewMulticastGroup :: ZMQParameters -> ZMQTransport -> LocalEndPoint -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
+apiNewMulticastGroup :: ZMQParameters -> TransportInternals -> LocalEndPoint -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
 apiNewMulticastGroup _params zmq lep = withMVar (_transportState zmq) $ \case
   TransportClosed -> return $ Left $ TransportError NewMulticastGroupFailed "Transport is closed."
   TransportValid vt -> modifyMVar (localEndPointState lep) $ \case
@@ -1007,7 +1007,7 @@ apiNewMulticastGroup _params zmq lep = withMVar (_transportState zmq) $ \case
         ZMQ.send rep [] "OK"
       return (pub,portPub,rep,portRep, wrkThread)
 
-apiResolveMulticastGroup :: ZMQTransport -> LocalEndPoint -> MulticastAddress -> IO (Either (TransportError ResolveMulticastGroupErrorCode) MulticastGroup)
+apiResolveMulticastGroup :: TransportInternals -> LocalEndPoint -> MulticastAddress -> IO (Either (TransportError ResolveMulticastGroupErrorCode) MulticastGroup)
 apiResolveMulticastGroup zmq lep addr = withMVar (_transportState zmq) $ \case
   TransportClosed -> return $ Left $ TransportError ResolveMulticastGroupFailed  "Transport is closed."
   TransportValid vt -> modifyMVar (localEndPointState lep) $ \case
@@ -1131,7 +1131,7 @@ apiMulticastClose = return ()
 -- If you need to clean resource beforehead use 'applyCleanupAction'.
 
 -- | Register action that will be fired when transport will be closed.
-registerCleanupAction :: ZMQTransport -> IO () -> IO (Maybe Unique)
+registerCleanupAction :: TransportInternals -> IO () -> IO (Maybe Unique)
 registerCleanupAction zmq fn = withMVar (_transportState zmq) $ \case
   TransportValid v -> registerValidCleanupAction v fn
   TransportClosed  -> return Nothing
@@ -1143,7 +1143,7 @@ registerValidCleanupAction (ValidTransportState _ _ _ im) fn = Just <$> do
     atomicModifyIORef' im (\m -> (IntMap.insert (hashUnique u) fn m, u))
 
 -- | Call cleanup action before transport close.
-applyCleanupAction :: ZMQTransport -> Unique -> IO ()
+applyCleanupAction :: TransportInternals -> Unique -> IO ()
 applyCleanupAction zmq u = withMVar (_transportState zmq) $ \case
   TransportValid (ValidTransportState _ _ _ im) -> mask_ $
     traverse_ id =<< atomicModifyIORef' im (\m -> (IntMap.delete (hashUnique u) m, IntMap.lookup (hashUnique u) m))

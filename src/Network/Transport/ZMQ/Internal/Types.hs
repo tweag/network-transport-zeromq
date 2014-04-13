@@ -4,10 +4,10 @@
 
 module Network.Transport.ZMQ.Internal.Types
   ( ZMQParameters(..)
-  , AuthMethod(..)
+  , SecurityMechanism(..)
   , defaultZMQParameters
     -- * Internal types
-  , ZMQTransport(..)
+  , TransportInternals(..)
   , TransportState(..)
   , ValidTransportState(..)
     -- ** RemoteEndPoint
@@ -59,25 +59,27 @@ import qualified System.ZMQ4 as ZMQ
 
 -- | Parameters for ZeroMQ connection.
 data ZMQParameters = ZMQParameters
-  { highWaterMark     :: Word64 -- uint64_t
-  , authMethod        :: Maybe AuthMethod
+  { zmqHighWaterMark     :: Word64 -- uint64_t
+  , zmqSecurityMechanism :: Maybe SecurityMechanism
   }
 
 defaultZMQParameters :: ZMQParameters
 defaultZMQParameters = ZMQParameters
-    { highWaterMark     = 0
-    , authMethod        = Nothing
+    { zmqHighWaterMark     = 0
+    , zmqSecurityMechanism = Nothing
     }
 
-data AuthMethod = AuthPlain
-  { authPlainPassword :: ByteString
-  , authPlainUserName :: ByteString
-  }
+-- | A ZeroMQ "security mechanism".
+data SecurityMechanism
+  = SecurityPlain
+  { plainPassword :: ByteString
+  , plainUsername :: ByteString
+  } -- ^ Clear-text authentication, using a (username, password) pair.
 
 type TransportAddress = ByteString
 
 -- | Transport data type.
-data ZMQTransport = ZMQTransport
+data TransportInternals = TransportInternals
   { transportAddress :: !TransportAddress
   -- ^ Transport address (used as identifier).
   , _transportState  :: !(MVar TransportState)
@@ -101,7 +103,7 @@ data ValidTransportState = ValidTransportState
 data LocalEndPoint = LocalEndPoint
   { localEndPointAddress :: !EndPointAddress
   , localEndPointState   :: !(MVar LocalEndPointState)
-  , localEndPointPort    :: !(Int)
+  , localEndPointPort    :: !Int
   }
 
 data LocalEndPointState
