@@ -298,10 +298,11 @@ apiTransportClose transport = mask_ $ do
     old <- swapMVar (_transportState transport) TransportClosed
     case old of
       TransportClosed -> return ()
-      TransportValid v@(ValidTransportState _ m _ mcl) -> do
+      TransportValid v@(ValidTransportState _ _ _ mcl) -> do
         Foldable.traverse_ (liftM2 (>>) Async.cancel Async.waitCatch)
                            (v ^. transportAuth)
-        Foldable.sequence_ $ Map.map (apiCloseEndPoint transport) m
+        Foldable.sequence_ $ Map.map (apiCloseEndPoint transport)
+                                     (v ^. transportEndPoints)
         Foldable.sequence_ =<< atomicModifyIORef' mcl (\x -> (IntMap.empty, x))
         ZMQ.term (v ^. transportContext)
 
