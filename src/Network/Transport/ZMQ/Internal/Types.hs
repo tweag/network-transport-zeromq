@@ -38,6 +38,7 @@ module Network.Transport.ZMQ.Internal.Types
   , transportEndPoints
   , transportEndPointAt
   , transportAuth
+  , transportSockets
   ) where
 
 import Control.Category ((>>>))
@@ -255,3 +256,6 @@ transportEndPointAt addr = transportEndPoints >>> DAC.mapMaybe addr
 
 transportAuth :: Accessor ValidTransportState (Maybe (Async ()))
 transportAuth = accessor _transportAuth (\e t -> t{_transportAuth = e})
+
+transportSockets :: Accessor ValidTransportState (IORef (IntMap (IO ())))
+transportSockets = accessor _transportSockets (\e t -> t{_transportSockets = e})

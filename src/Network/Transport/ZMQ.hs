@@ -298,12 +298,12 @@ apiTransportClose transport = mask_ $ do
     old <- swapMVar (_transportState transport) TransportClosed
     case old of
       TransportClosed -> return ()
-      TransportValid v@(ValidTransportState _ _ _ mcl) -> do
+      TransportValid v@(ValidTransportState _ _ _ _) -> do
         Foldable.traverse_ (liftM2 (>>) Async.cancel Async.waitCatch)
                            (v ^. transportAuth)
         Foldable.sequence_ $ Map.map (apiCloseEndPoint transport)
                                      (v ^. transportEndPoints)
-        Foldable.sequence_ =<< atomicModifyIORef' mcl (\x -> (IntMap.empty, x))
+        Foldable.sequence_ =<< atomicModifyIORef' (v ^. transportSockets) (\x -> (IntMap.empty, x))
         ZMQ.term (v ^. transportContext)
 
 apiNewEndPoint :: ZMQParameters -> TransportInternals -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
@@ -1144,15 +1144,18 @@ registerCleanupAction zmq fn = withMVar (_transportState zmq) $ \case
 
 -- | Register action on a locked transport.
 registerValidCleanupAction :: ValidTransportState -> IO () -> IO (Maybe Unique)
-registerValidCleanupAction (ValidTransportState _ _ _ im) fn = Just <$> do
+registerValidCleanupAction v fn = Just <$> do
     u <- newUnique
-    atomicModifyIORef' im (\m -> (IntMap.insert (hashUnique u) fn m, u))
+    atomicModifyIORef' (v ^. transportSockets)
+                       (\m -> (IntMap.insert (hashUnique u) fn m, u))
 
 -- | Call cleanup action before transport close.
 applyCleanupAction :: TransportInternals -> Unique -> IO ()
 applyCleanupAction zmq u = withMVar (_transportState zmq) $ \case
-  TransportValid (ValidTransportState _ _ _ im) -> mask_ $
-    traverse_ id =<< atomicModifyIORef' im (\m -> (IntMap.delete (hashUnique u) m, IntMap.lookup (hashUnique u) m))
+  TransportValid v -> mask_ $
+    traverse_ id =<< atomicModifyIORef' (v ^. transportSockets)
+                                        (liftA2 (,) (IntMap.delete (hashUnique u))
+                                                    (IntMap.lookup (hashUnique u)))
   TransportClosed -> return ()
 
 extractRepAddress :: MulticastAddress -> ByteString
