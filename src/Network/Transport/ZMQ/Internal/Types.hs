@@ -38,6 +38,9 @@ module Network.Transport.ZMQ.Internal.Types
   , ValidMulticastGroup(..)
     -- * Internal data structures
   , Counter(..)
+  , counterNextId
+  , counterValues
+  , counterValueAt
   , nextElement
   , nextElement'
   , nextElementM
@@ -197,8 +200,8 @@ data ValidMulticastGroup = ValidMulticastGroup
   }
 
 data Counter a b = Counter
-  { counterNext   :: !a
-  , counterValue  :: !(Map a b)
+  { _counterNext   :: !a
+  , _counterValue  :: !(Map a b)
   }
 
 nextElement :: (Enum a, Ord a)
@@ -271,6 +274,15 @@ localEndPointChan = accessor _localEndPointChan (\e t -> t{_localEndPointChan = 
 localEndPointConnections :: Accessor ValidLocalEndPoint (Counter ConnectionId ZMQConnection)
 localEndPointConnections = accessor _localEndPointConnections (\e t -> t{_localEndPointConnections = e})
 
+counterNextId :: Accessor (Counter a b) a
+counterNextId = accessor _counterNext (\e t -> t{_counterNext = e})
+
+counterValues :: Accessor (Counter a b) (Map a b)
+counterValues = accessor _counterValue (\e t -> t{_counterValue = e})
+
+counterValueAt :: (Ord a) => a -> Accessor (Counter a b) (Maybe b)
+counterValueAt idx = counterValues >>> DAC.mapMaybe idx
+--
 --------------------------------------------------------------------------------
 -- Smart constructors
 --------------------------------------------------------------------------------
