@@ -313,8 +313,11 @@ apiNewEndPoint params transport = do
          eEndPoint <- endPointCreate params ctx (B8.unpack addr)
          case eEndPoint of
            Right (_port, ep, chan) -> return
-	   	  ( TransportValid i{_transportEndPoints = Map.insert (localEndPointAddress ep) ep (_transportEndPoints i)}
-                  , Right (ep, ctx, chan))
+             ( TransportValid
+             . (transportEndPoints ^: (Map.insert (localEndPointAddress ep) ep))
+             $ i
+             , Right (ep, ctx, chan)
+             )
            Left _ -> return (v, Left $ TransportError NewEndPointFailed "Failed to create new endpoint.")
     case elep of
       Right (ep,ctx, chOut) ->
@@ -354,8 +357,10 @@ apiCloseEndPoint transport lep = mask_ $ do
     void $ swapMVar (localEndPointState lep) LocalEndPointClosed
     modifyMVar_ (_transportState transport) $ \case
       TransportClosed  -> return TransportClosed
-      TransportValid v -> return $ TransportValid
-        v{_transportEndPoints = Map.delete (localEndPointAddress lep) (_transportEndPoints v)}
+      TransportValid v -> return
+        $ TransportValid
+        . (transportEndPoints ^: (Map.delete (localEndPointAddress lep)))
+        $ v
 
 endPointCreate :: ZMQParameters
                -> Context
@@ -893,7 +898,7 @@ breakConnection :: TransportInternals
                 -> EndPointAddress
                 -> IO ()
 breakConnection zmqt _from to = Foldable.sequence_ <=<  withMVar (_transportState zmqt) $ \case
-    TransportValid v -> Traversable.forM (_transportEndPoints v) $ \x ->
+    TransportValid v -> Traversable.forM (v ^. transportEndPoints) $ \x ->
       withMVar (localEndPointState x) $ \case
         LocalEndPointValid w -> return $ Foldable.sequence_ $ flip Map.mapWithKey (_localEndPointRemotes w) $ \key rep ->
           if onDeadHost key

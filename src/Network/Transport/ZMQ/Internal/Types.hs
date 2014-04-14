@@ -35,6 +35,7 @@ module Network.Transport.ZMQ.Internal.Types
   , nextElementM'
     -- ** Accessors
   , transportContext
+  , transportEndPoints
   ) where
 
 import Control.Concurrent.Async
@@ -242,3 +243,6 @@ nextElementM' t me (Counter n m) =
 
 transportContext :: Accessor ValidTransportState ZMQ.Context
 transportContext = accessor _transportContext (\e t -> t{_transportContext = e})
+
+transportEndPoints :: Accessor ValidTransportState (Map EndPointAddress LocalEndPoint)
+transportEndPoints = accessor _transportEndPoints (\e t -> t{_transportEndPoints = e})
