@@ -22,6 +22,7 @@ module Network.Transport.ZMQ.Internal.Types
   , RemoteEndPointState(..)
   , ValidRemoteEndPoint(..)
   , ClosingRemoteEndPoint(..)
+  , remoteEndPointSocket
     -- ** LocalEndPoint
   , LocalEndPoint(..)
   , LocalEndPointState(..)
@@ -178,7 +179,7 @@ data RemoteEndPointState
   | RemoteEndPointClosing ClosingRemoteEndPoint
 
 data ValidRemoteEndPoint = ValidRemoteEndPoint
-  { _remoteEndPointChan                 :: !(Socket Push)
+  {  remoteEndPointSocket               :: !(Socket Push)
   , _remoteEndPointPendingConnections   :: !(Counter ConnectionId ZMQConnection)
   , _remoteEndPointIncommingConnections :: !(Set ConnectionId)
   , _remoteEndPointOutgoingCount        :: !Int

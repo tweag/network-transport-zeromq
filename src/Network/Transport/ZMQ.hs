@@ -517,7 +517,7 @@ endPointCreate params ctx addr = do
           Nothing  -> return ()
           Just rep -> do
             onValidRemote rep $ \v ->
-              ZMQ.send (_remoteEndPointChan v) [] (encode' $ MessageEndPointCloseOk $ localEndPointAddress ourEp)
+              ZMQ.send (remoteEndPointSocket v) [] (encode' $ MessageEndPointCloseOk $ localEndPointAddress ourEp)
             remoteEndPointClose True ourEp rep
         MessageEndPointClose theirAddress False -> getRemoteEndPoint ourEp theirAddress >>= \case
           Nothing  -> return ()
@@ -594,9 +594,9 @@ apiSend (ZMQConnection l e _ s _) b = mask_ $ do
        ZMQConnectionClosed -> afterP $ Left $ TransportError SendClosed "Connection is closed"
        ZMQConnectionFailed -> afterP $ Left $ TransportError SendFailed "Connection is failed"
        ZMQConnectionValid (ValidZMQConnection _ idx) -> do
-         evs <- ZMQ.events (_remoteEndPointChan v)
+         evs <- ZMQ.events (remoteEndPointSocket v)
          if ZMQ.Out `elem` evs
-         then do ZMQ.sendMulti (_remoteEndPointChan v) $ encode' (MessageData idx) :| b
+         then do ZMQ.sendMulti (remoteEndPointSocket v) $ encode' (MessageData idx) :| b
                  afterP $ Right ()
          else return $ do
             mz <- cleanupRemoteEndPoint l e Nothing
@@ -609,7 +609,7 @@ apiSend (ZMQConnection l e _ s _) b = mask_ $ do
             return $ Left $ TransportError SendFailed "Connection broken."
    cleanup = do
      void $ cleanupRemoteEndPoint l e
-       (Just $ \v -> ZMQ.send (_remoteEndPointChan v) [] $ encode' (MessageEndPointClose (localEndPointAddress l) False))
+       (Just $ \v -> ZMQ.send (remoteEndPointSocket v) [] $ encode' (MessageEndPointClose (localEndPointAddress l) False))
      onValidEndPoint l $ \v -> atomically $ do
        writeTMChan (v ^. localEndPointChan) $ ErrorEvent $ TransportError
                    (EventConnectionLost (remoteEndPointAddress e)) "Exception on send."
@@ -713,15 +713,15 @@ createOrGetRemoteEndPoint :: ZMQParameters
                           -> IO (Either ZMQError RemoteEndPoint)
 createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
     modifyMVar (localEndPointState ourEp) $ \case
-      LocalEndPointValid v@(ValidLocalEndPoint _ _ m _ o _) -> do
+      LocalEndPointValid v@(ValidLocalEndPoint _ _ _ _ o _) -> do
         opened <- readIORef o
         if opened
         then do
-          case theirAddr `Map.lookup` m of
-            Nothing -> create v m
+          case v ^. localEndPointRemoteAt theirAddr of
+            Nothing -> create v
             Just rep -> do
               withMVar (remoteEndPointState rep) $ \case
-                RemoteEndPointFailed -> create v m
+                RemoteEndPointFailed -> create v
                 _ -> return (LocalEndPointValid v, return $ Right rep)
         else return (LocalEndPointValid v, return $ Left $ IncorrectState "EndPointClosing")
       LocalEndPointClosed ->
@@ -729,7 +729,7 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
                 , return $ Left $ IncorrectState "EndPoint is closed"
                 )
   where
-    create v m = do
+    create v = do
       push <- ZMQ.socket ctx ZMQ.Push
       case zmqSecurityMechanism params of
           Nothing -> return ()
@@ -739,7 +739,9 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
       state <- newMVar . RemoteEndPointPending =<< newIORef []
       opened <- newIORef False
       let rep = RemoteEndPoint theirAddr state opened
-      return ( LocalEndPointValid v{ _localEndPointRemotes = Map.insert theirAddr rep m}
+      return ( LocalEndPointValid 
+             . (localEndPointRemotes ^: (Map.insert theirAddr rep))
+             $ v
              , initialize push rep >> return (Right rep))
     ourAddr = localEndPointAddress ourEp
     initialize push rep = do
@@ -813,7 +815,7 @@ closeRemoteEndPoint lep rep state = step1 >> step2 state
        $ v
      c -> return c
    step2 (RemoteEndPointValid v) = do
-      ZMQ.closeZeroLinger (_remoteEndPointChan v)
+      ZMQ.closeZeroLinger (remoteEndPointSocket v)
    step2 (RemoteEndPointClosing (ClosingRemoteEndPoint sock rd)) = do
      _ <- readMVar rd
      ZMQ.closeZeroLinger sock
@@ -828,7 +830,7 @@ remoteEndPointClose silent lep rep = do
      RemoteEndPointClosed        -> return (o, return ())
      RemoteEndPointClosing (ClosingRemoteEndPoint _ l) -> return (o, void $ readMVar l)
      RemoteEndPointPending _ -> closing (error "Pending actions should not be executed") o -- XXX: store socket, or delay
-     RemoteEndPointValid v   -> closing (_remoteEndPointChan v) o
+     RemoteEndPointValid v   -> closing (remoteEndPointSocket v) o
  where
    closing sock old = do
      lock <- newEmptyMVar
@@ -946,7 +948,7 @@ unsafeConfigurePush zmqt from to f = withMVar (transportState zmqt) $ \case
       (\x -> withMVar (localEndPointState x) $ \case
         LocalEndPointValid w -> case w ^. localEndPointRemoteAt to of
           Nothing -> return ()
-          Just y  -> onValidRemote y $ f . _remoteEndPointChan
+          Just y  -> onValidRemote y $ f . remoteEndPointSocket
         LocalEndPointClosed   -> return ()
       ) (v ^. transportEndPointAt from)
     TransportClosed -> return ()
