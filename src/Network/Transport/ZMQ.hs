@@ -924,7 +924,7 @@ breakConnectionEndPoint :: TransportInternals
 breakConnectionEndPoint zmqt from to = one from to >> one to from
   where
     one f t = join $ withMVar (_transportState zmqt) $ \case
-      TransportValid v -> case f `Map.lookup` _transportEndPoints v of
+      TransportValid v -> case v ^. transportEndPointAt f of
         Nothing -> afterP ()
         Just x  -> withMVar (localEndPointState x) $ \case
           LocalEndPointValid w -> case t `Map.lookup` _localEndPointRemotes w of
@@ -953,7 +953,7 @@ unsafeConfigurePush zmqt from to f = withMVar (_transportState zmqt) $ \case
           Nothing -> return ()
           Just y  -> onValidRemote y $ f . _remoteEndPointChan
         LocalEndPointClosed   -> return ()
-      ) (from `Map.lookup` _transportEndPoints v)
+      ) (v ^. transportEndPointAt from)
     TransportClosed -> return ()
 
 apiNewMulticastGroup :: ZMQParameters -> TransportInternals -> LocalEndPoint -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)

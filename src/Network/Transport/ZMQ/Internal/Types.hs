@@ -36,8 +36,10 @@ module Network.Transport.ZMQ.Internal.Types
     -- ** Accessors
   , transportContext
   , transportEndPoints
+  , transportEndPointAt
   ) where
 
+import Control.Category ((>>>))
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TMChan
@@ -246,3 +248,6 @@ transportContext = accessor _transportContext (\e t -> t{_transportContext = e})
 
 transportEndPoints :: Accessor ValidTransportState (Map EndPointAddress LocalEndPoint)
 transportEndPoints = accessor _transportEndPoints (\e t -> t{_transportEndPoints = e})
+
+transportEndPointAt :: EndPointAddress -> Accessor ValidTransportState (Maybe LocalEndPoint)
+transportEndPointAt addr = transportEndPoints >>> DAC.mapMaybe addr
