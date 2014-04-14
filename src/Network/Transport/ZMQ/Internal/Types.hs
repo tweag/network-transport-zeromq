@@ -29,6 +29,8 @@ module Network.Transport.ZMQ.Internal.Types
   , localEndPointChan
   , localEndPointConnections
   , localEndPointConnectionAt
+  , localEndPointRemotes
+  , localEndPointRemoteAt
     -- ** ZeroMQ connection
   , ZMQConnection(..)
   , ZMQConnectionState(..)
@@ -277,6 +279,12 @@ localEndPointConnections = accessor _localEndPointConnections (\e t -> t{_localE
 
 localEndPointConnectionAt :: ConnectionId -> Accessor ValidLocalEndPoint (Maybe ZMQConnection)
 localEndPointConnectionAt idx = localEndPointConnections >>> counterValueAt idx
+
+localEndPointRemotes :: Accessor ValidLocalEndPoint (Map EndPointAddress RemoteEndPoint)
+localEndPointRemotes = accessor _localEndPointRemotes (\e t -> t{_localEndPointRemotes = e})
+
+localEndPointRemoteAt :: EndPointAddress -> Accessor ValidLocalEndPoint (Maybe RemoteEndPoint)
+localEndPointRemoteAt addr = localEndPointRemotes >>> DAC.mapMaybe addr 
 
 counterNextId :: Accessor (Counter a b) a
 counterNextId = accessor _counterNext (\e t -> t{_counterNext = e})

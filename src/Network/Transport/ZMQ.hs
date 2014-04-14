@@ -418,7 +418,7 @@ endPointCreate params ctx addr = do
           join $ do
             modifyMVar (localEndPointState ourEp) $ \case
                 LocalEndPointValid v ->
-                    case theirAddress `Map.lookup` r of
+                    case v ^. localEndPointRemoteAt theirAddress of
                       Nothing -> return (LocalEndPointValid v, throwM $ InvariantViolation "Remote endpoint should exist.")
                       Just rep -> modifyMVar (remoteEndPointState rep) $ \case
                           RemoteEndPointFailed -> throwM $ InvariantViolation "RemoteEndPoint should be valid."
@@ -447,7 +447,6 @@ endPointCreate params ctx addr = do
                                      , return ())
                                    )
                   where
-                    r = _localEndPointRemotes v
                     (Counter i m) = v ^. localEndPointConnections
                 _ -> throwM $ InvariantViolation "RemoteEndPoint should be valid."
           where
@@ -490,8 +489,8 @@ endPointCreate params ctx addr = do
 	    LocalEndPointClosed -> return (LocalEndPointClosed, return ())
         MessageInitConnectionOk theirAddress ourId theirId -> do
           join $ withMVar (localEndPointState ourEp) $ \case
-            LocalEndPointValid v ->
-                case theirAddress `Map.lookup` r of
+            LocalEndPointValid v -> 
+                case v ^. localEndPointRemoteAt theirAddress of
                   Nothing  -> return (return ()) -- XXX: send message to the host
                   Just rep -> modifyMVar (remoteEndPointState rep) $ \case
                     RemoteEndPointFailed -> return (RemoteEndPointFailed, return ())
@@ -513,8 +512,6 @@ endPointCreate params ctx addr = do
                                         void $ tryPutMVar (connectionReady c) ()
                                    )
                     RemoteEndPointPending p -> return (RemoteEndPointPending p, throwM $ InvariantViolation "RemoteEndPoint should be closed")
-              where
-                r = _localEndPointRemotes v
             LocalEndPointClosed -> return $ return ()
         MessageEndPointClose theirAddress True -> getRemoteEndPoint ourEp theirAddress >>= \case
           Nothing  -> return ()
@@ -547,7 +544,7 @@ endPointCreate params ctx addr = do
           return $ do
             tid <- Async.async $ finalizer pull ourEp
             void $ Async.mapConcurrently (remoteEndPointClose False ourEp)
-                 $ _localEndPointRemotes v
+                 $ v ^. localEndPointRemotes
             Async.cancel tid
             void $ Async.waitCatch tid
             ZMQ.closeZeroLinger pull
@@ -811,9 +808,9 @@ closeRemoteEndPoint lep rep state = step1 >> step2 state
   where
    step1 = modifyMVar_ (localEndPointState lep) $ \case
      LocalEndPointValid v -> return $
-       LocalEndPointValid v{_localEndPointRemotes=Map.delete
-                               (remoteEndPointAddress rep)
-                               (_localEndPointRemotes v)}
+       LocalEndPointValid
+       . (localEndPointRemotes ^: (Map.delete (remoteEndPointAddress rep)))
+       $ v
      c -> return c
    step2 (RemoteEndPointValid v) = do
       ZMQ.closeZeroLinger (_remoteEndPointChan v)
@@ -898,7 +895,7 @@ breakConnection :: TransportInternals
 breakConnection zmqt _from to = Foldable.sequence_ <=<  withMVar (transportState zmqt) $ \case
     TransportValid v -> Traversable.forM (v ^. transportEndPoints) $ \x ->
       withMVar (localEndPointState x) $ \case
-        LocalEndPointValid w -> return $ Foldable.sequence_ $ flip Map.mapWithKey (_localEndPointRemotes w) $ \key rep ->
+        LocalEndPointValid w -> return $ Foldable.sequence_ $ flip Map.mapWithKey (w ^. localEndPointRemotes) $ \key rep ->
           if onDeadHost key
           then do
             mz <- cleanupRemoteEndPoint x rep Nothing
@@ -925,7 +922,7 @@ breakConnectionEndPoint zmqt from to = one from to >> one to from
       TransportValid v -> case v ^. transportEndPointAt f of
         Nothing -> afterP ()
         Just x  -> withMVar (localEndPointState x) $ \case
-          LocalEndPointValid w -> case t `Map.lookup` _localEndPointRemotes w of
+          LocalEndPointValid w -> case w ^. localEndPointRemoteAt t of
             Nothing -> afterP ()
             Just y  -> return $ do
                 mz <- cleanupRemoteEndPoint x y Nothing
@@ -947,7 +944,7 @@ unsafeConfigurePush :: TransportInternals
 unsafeConfigurePush zmqt from to f = withMVar (transportState zmqt) $ \case
     TransportValid v -> Foldable.traverse_
       (\x -> withMVar (localEndPointState x) $ \case
-        LocalEndPointValid w -> case to `Map.lookup` _localEndPointRemotes w of
+        LocalEndPointValid w -> case w ^. localEndPointRemoteAt to of
           Nothing -> return ()
           Just y  -> onValidRemote y $ f . _remoteEndPointChan
         LocalEndPointClosed   -> return ()
