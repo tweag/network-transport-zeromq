@@ -56,6 +56,7 @@ import           Control.Monad
       , foldM
       , when
       , (<=<)
+      , liftM2
       )
 import           Control.Exception
       ( AsyncException )
@@ -297,10 +298,9 @@ apiTransportClose transport = mask_ $ do
     old <- swapMVar (_transportState transport) TransportClosed
     case old of
       TransportClosed -> return ()
-      TransportValid (ValidTransportState ctx m mtid mcl) -> do
-        case mtid of
-          Nothing -> return ()
-          Just tid -> Async.cancel tid
+      TransportValid v@(ValidTransportState ctx m _ mcl) -> do
+        Foldable.traverse_ (liftM2 (>>) Async.cancel Async.waitCatch)
+                           (v ^. transportAuth)
         Foldable.sequence_ $ Map.map (apiCloseEndPoint transport) m
         Foldable.sequence_ =<< atomicModifyIORef' mcl (\x -> (IntMap.empty, x))
         ZMQ.term ctx
