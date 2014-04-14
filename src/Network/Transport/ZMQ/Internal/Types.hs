@@ -23,6 +23,7 @@ module Network.Transport.ZMQ.Internal.Types
   , ValidRemoteEndPoint(..)
   , ClosingRemoteEndPoint(..)
   , remoteEndPointSocket
+  , remoteEndPointPendingConnections
     -- ** LocalEndPoint
   , LocalEndPoint(..)
   , LocalEndPointState(..)
@@ -32,6 +33,8 @@ module Network.Transport.ZMQ.Internal.Types
   , localEndPointConnectionAt
   , localEndPointRemotes
   , localEndPointRemoteAt
+  , localEndPointMulticastGroups
+
     -- ** ZeroMQ connection
   , ZMQConnection(..)
   , ZMQConnectionState(..)
@@ -132,15 +135,15 @@ data LocalEndPointState
   | LocalEndPointClosed
 
 data ValidLocalEndPoint = ValidLocalEndPoint
-  { _localEndPointChan        :: !(TMChan Event)
+  {  localEndPointChan        :: !(TMChan Event)
     -- ^ channel for n-t - user communication
   , _localEndPointConnections :: !(Counter ConnectionId ZMQConnection)
     -- ^ list of incomming connections
   , _localEndPointRemotes     :: !(Map EndPointAddress RemoteEndPoint)
     -- ^ list of remote end points
-  , _localEndPointThread      :: !(Async ())
+  ,  localEndPointThread      :: !(Async ())
     -- ^ thread id
-  , _localEndPointOpened      :: !(IORef Bool)
+  ,  localEndPointOpened      :: !(IORef Bool)
     -- ^ is remote endpoint opened
   , _localEndPointMulticastGroups :: !(Map MulticastAddress ZMQMulticastGroup)
     -- ^ list of multicast nodes
@@ -272,9 +275,6 @@ transportAuth = accessor _transportAuth (\e t -> t{_transportAuth = e})
 transportSockets :: Accessor ValidTransportState (IORef (IntMap (IO ())))
 transportSockets = accessor _transportSockets (\e t -> t{_transportSockets = e})
 
-localEndPointChan :: Accessor ValidLocalEndPoint (TMChan Event)
-localEndPointChan = accessor _localEndPointChan (\e t -> t{_localEndPointChan = e})
-
 localEndPointConnections :: Accessor ValidLocalEndPoint (Counter ConnectionId ZMQConnection)
 localEndPointConnections = accessor _localEndPointConnections (\e t -> t{_localEndPointConnections = e})
 
@@ -286,6 +286,12 @@ localEndPointRemotes = accessor _localEndPointRemotes (\e t -> t{_localEndPointR
 
 localEndPointRemoteAt :: EndPointAddress -> Accessor ValidLocalEndPoint (Maybe RemoteEndPoint)
 localEndPointRemoteAt addr = localEndPointRemotes >>> DAC.mapMaybe addr 
+
+localEndPointMulticastGroups :: Accessor ValidLocalEndPoint (Map MulticastAddress ZMQMulticastGroup)
+localEndPointMulticastGroups = accessor _localEndPointMulticastGroups (\e t -> t{_localEndPointMulticastGroups = e})
+
+remoteEndPointPendingConnections :: Accessor ValidRemoteEndPoint (Counter ConnectionId ZMQConnection)
+remoteEndPointPendingConnections = accessor _remoteEndPointPendingConnections (\e t -> t{_remoteEndPointPendingConnections = e})
 
 counterNextId :: Accessor (Counter a b) a
 counterNextId = accessor _counterNext (\e t -> t{_counterNext = e})

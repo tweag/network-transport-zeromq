@@ -40,6 +40,8 @@ import Network.Transport.ZMQ.Internal.Types
 import qualified Network.Transport.ZMQ.Internal as ZMQ
 
 import           Control.Applicative
+import           Control.Category
+      ( (>>>) )
 import           Control.Concurrent
        ( yield
        , threadDelay
@@ -526,7 +528,7 @@ endPointCreate params ctx addr = do
             case mst of
               Nothing -> return ()
               Just st -> do
-                onValidEndPoint ourEp $ \v -> atomically $ writeTMChan (v ^. localEndPointChan) $
+                onValidEndPoint ourEp $ \v -> atomically $ writeTMChan (localEndPointChan v) $
                    ErrorEvent $ TransportError (EventConnectionLost theirAddress) "Exception on remote side"
                 closeRemoteEndPoint ourEp rep st
         MessageEndPointCloseOk theirAddress -> getRemoteEndPoint ourEp theirAddress >>= \case
@@ -540,7 +542,7 @@ endPointCreate params ctx addr = do
       join $ withMVar (localEndPointState ourEp) $ \case
         LocalEndPointClosed  -> afterP ()
         LocalEndPointValid v -> do
-          writeIORef (_localEndPointOpened v) False
+          writeIORef (localEndPointOpened v) False
           return $ do
             tid <- Async.async $ finalizer pull ourEp
             void $ Async.mapConcurrently (remoteEndPointClose False ourEp)
@@ -603,7 +605,7 @@ apiSend (ZMQConnection l e _ s _) b = mask_ $ do
             case mz of
               Nothing -> return ()
               Just z  -> do
-                onValidEndPoint l $ \w -> atomically $ writeTMChan (w ^. localEndPointChan) $
+                onValidEndPoint l $ \w -> atomically $ writeTMChan (localEndPointChan w) $
                    ErrorEvent $ TransportError (EventConnectionLost (remoteEndPointAddress e)) "Exception on remote side"
                 closeRemoteEndPoint l e z
             return $ Left $ TransportError SendFailed "Connection broken."
@@ -611,7 +613,7 @@ apiSend (ZMQConnection l e _ s _) b = mask_ $ do
      void $ cleanupRemoteEndPoint l e
        (Just $ \v -> ZMQ.send (remoteEndPointSocket v) [] $ encode' (MessageEndPointClose (localEndPointAddress l) False))
      onValidEndPoint l $ \v -> atomically $ do
-       writeTMChan (v ^. localEndPointChan) $ ErrorEvent $ TransportError
+       writeTMChan (localEndPointChan v) $ ErrorEvent $ TransportError
                    (EventConnectionLost (remoteEndPointAddress e)) "Exception on send."
 #endif
 
@@ -783,14 +785,14 @@ cleanupRemoteEndPoint lep rep actions = modifyMVar (localEndPointState lep) $ \c
       oldState <- swapMVar (remoteEndPointState rep) newState
       case oldState of
         RemoteEndPointValid w -> do
-          let (Counter _ cn) = _remoteEndPointPendingConnections w
+          let cn = w ^. (remoteEndPointPendingConnections >>> counterValues)
           traverse_ (\c -> void $ swapMVar (connectionState c) ZMQConnectionFailed) cn
           cn' <- foldM
-               (\(Counter i' cn') idx -> case idx `Map.lookup` cn of
-                   Nothing -> return (Counter i' cn')
+               (\c' idx -> case idx `Map.lookup` cn of
+                   Nothing -> return c'
                    Just c  -> do
                      void $ swapMVar (connectionState c) ZMQConnectionFailed
-                     return $ Counter i' (Map.delete idx cn')
+                     return $ (counterValues ^: (Map.delete idx)) $ c'
                )
                (v ^. localEndPointConnections)
                (Set.toList (_remoteEndPointIncommingConnections w))
@@ -842,10 +844,10 @@ remoteEndPointClose silent lep rep = do
        LocalEndPointClosed -> return ()
        LocalEndPointValid v -> do
          -- notify about all connections close (?) do we really want it?
-         traverse_ (atomically . writeTMChan (v ^. localEndPointChan) . ConnectionClosed) (Set.toList s)
+         traverse_ (atomically . writeTMChan (localEndPointChan v) . ConnectionClosed) (Set.toList s)
          -- if we have outgoing connections, then we have connection error
          when (i > 0) $ atomically
-                      $ writeTMChan (v ^. localEndPointChan)
+                      $ writeTMChan (localEndPointChan v)
                       $ ErrorEvent $ TransportError (EventConnectionLost (remoteEndPointAddress rep)) "Remote end point closed."
      -- notify other side about closing connection
      unless silent $ do
@@ -902,7 +904,7 @@ breakConnection zmqt _from to = Foldable.sequence_ <=<  withMVar (transportState
           then do
             mz <- cleanupRemoteEndPoint x rep Nothing
             flip traverse_ mz $ \z -> do
-              atomically $ writeTMChan (w ^. localEndPointChan) $
+              atomically $ writeTMChan (localEndPointChan w) $
                 ErrorEvent $ TransportError (EventConnectionLost key) "Manual connection break"
               closeRemoteEndPoint x rep z
           else return ()
@@ -931,7 +933,7 @@ breakConnectionEndPoint zmqt from to = one from to >> one to from
                 case mz of
                   Nothing -> return ()
                   Just z  -> do
-                    onValidEndPoint x $ \j -> atomically $ writeTMChan (j ^. localEndPointChan) $
+                    onValidEndPoint x $ \j -> atomically $ writeTMChan (localEndPointChan j) $
                        ErrorEvent $ TransportError (EventConnectionLost to) "Exception on remote side"
                     closeRemoteEndPoint x y z
           LocalEndPointClosed   -> afterP ()
@@ -981,7 +983,7 @@ apiNewMulticastGroup _params zmq lep = withMVar (transportState zmq) $ \case
               (ctrl: msg) <- ZMQ.receiveMulti sub
               if B8.null ctrl
               then do opened <- readIORef subscribed
-                      when opened $ atomically $ writeTMChan (vl ^. localEndPointChan)
+                      when opened $ atomically $ writeTMChan (localEndPointChan vl)
                                                $ ReceivedMulticast addr msg
                       return True
               else return False
@@ -1031,7 +1033,7 @@ apiResolveMulticastGroup zmq lep addr = withMVar (transportState zmq) $ \case
           (ctrl: msg) <- ZMQ.receiveMulti sub
           if B8.null ctrl
           then do opened <- readIORef subscribed
-                  when opened $ atomically $ writeTMChan (vl ^. localEndPointChan)
+                  when opened $ atomically $ writeTMChan (localEndPointChan vl)
                                            $ ReceivedMulticast addr msg
                   return True
           else do apiDeleteMulticastGroupRemote v lep addr req reqAddr sub subAddr Nothing
