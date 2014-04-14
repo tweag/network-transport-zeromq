@@ -26,6 +26,7 @@ module Network.Transport.ZMQ.Internal.Types
   , LocalEndPoint(..)
   , LocalEndPointState(..)
   , ValidLocalEndPoint(..)
+  , localEndPointChan
     -- ** ZeroMQ connection
   , ZMQConnection(..)
   , ZMQConnectionState(..)
@@ -263,10 +264,13 @@ transportAuth = accessor _transportAuth (\e t -> t{_transportAuth = e})
 transportSockets :: Accessor ValidTransportState (IORef (IntMap (IO ())))
 transportSockets = accessor _transportSockets (\e t -> t{_transportSockets = e})
 
+localEndPointChan :: Accessor ValidLocalEndPoint (TMChan Event)
+localEndPointChan = accessor _localEndPointChan (\e t -> t{_localEndPointChan = e})
 --------------------------------------------------------------------------------
 -- Smart constructors
 --------------------------------------------------------------------------------
 mkTransportState :: ZMQ.Context -> Maybe (Async ()) -> IO TransportState
+
 mkTransportState ctx auth
   = TransportValid <$>
       (ValidTransportState
