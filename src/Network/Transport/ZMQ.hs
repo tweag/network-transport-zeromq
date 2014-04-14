@@ -298,7 +298,7 @@ apiTransportClose transport = mask_ $ do
     old <- swapMVar (_transportState transport) TransportClosed
     case old of
       TransportClosed -> return ()
-      TransportValid v@(ValidTransportState _ _ _ _) -> do
+      TransportValid v -> do
         Foldable.traverse_ (liftM2 (>>) Async.cancel Async.waitCatch)
                            (v ^. transportAuth)
         Foldable.sequence_ $ Map.map (apiCloseEndPoint transport)
