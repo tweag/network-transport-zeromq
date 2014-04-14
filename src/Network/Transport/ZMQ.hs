@@ -281,10 +281,9 @@ createTransportExposeInternals params host = do
     mtid <- Traversable.sequenceA $
             fmap (\(SecurityPlain user pass) -> ZMQ.authManager ctx user pass) $
                  zmqSecurityMechanism params
-    mcl  <- newIORef IntMap.empty
     transport <- TransportInternals
     	<$> pure addr
-        <*> newMVar (TransportValid $ ValidTransportState ctx Map.empty mtid mcl)
+        <*> (newMVar =<< mkTransportState ctx mtid)
     return $ Right (transport, Transport
       { newEndPoint    = apiNewEndPoint params transport
       , closeTransport = apiTransportClose transport

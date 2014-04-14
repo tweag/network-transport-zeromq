@@ -9,7 +9,14 @@ module Network.Transport.ZMQ.Internal.Types
     -- * Internal types
   , TransportInternals(..)
   , TransportState(..)
-  , ValidTransportState(..)
+  , mkTransportState
+    -- ** ValidTransportState
+  , ValidTransportState
+  , transportContext
+  , transportEndPoints
+  , transportEndPointAt
+  , transportAuth
+  , transportSockets
     -- ** RemoteEndPoint
   , RemoteEndPoint(..)
   , RemoteEndPointState(..)
@@ -33,15 +40,10 @@ module Network.Transport.ZMQ.Internal.Types
   , nextElement'
   , nextElementM
   , nextElementM'
-    -- ** Accessors
-  , transportContext
-  , transportEndPoints
-  , transportEndPointAt
-  , transportAuth
-  , transportSockets
   ) where
 
 import Control.Category ((>>>))
+import Control.Applicative
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TMChan
@@ -49,6 +51,7 @@ import Data.Word
 import Data.ByteString
 import Data.IORef
 import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict  as Map
 import           Data.Set
@@ -259,3 +262,15 @@ transportAuth = accessor _transportAuth (\e t -> t{_transportAuth = e})
 
 transportSockets :: Accessor ValidTransportState (IORef (IntMap (IO ())))
 transportSockets = accessor _transportSockets (\e t -> t{_transportSockets = e})
+
+--------------------------------------------------------------------------------
+-- Smart constructors
+--------------------------------------------------------------------------------
+mkTransportState :: ZMQ.Context -> Maybe (Async ()) -> IO TransportState
+mkTransportState ctx auth
+  = TransportValid <$>
+      (ValidTransportState
+         <$> pure ctx
+         <*> pure (Map.empty)
+         <*> pure auth
+         <*> newIORef IntMap.empty)
