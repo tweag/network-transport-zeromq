@@ -33,6 +33,8 @@ module Network.Transport.ZMQ.Internal.Types
   , nextElement'
   , nextElementM
   , nextElementM'
+    -- ** Accessors
+  , transportContext
   ) where
 
 import Control.Concurrent.Async
@@ -55,6 +57,8 @@ import           System.ZMQ4
 import Network.Transport
 
 import qualified System.ZMQ4 as ZMQ
+import Data.Accessor (Accessor, accessor)
+import qualified Data.Accessor.Container as DAC (mapMaybe)
 
 
 -- | Parameters for ZeroMQ connection.
@@ -230,3 +234,11 @@ nextElementM' t me (Counter n m) =
   where
     n' = succ n
     mv = me n'
+
+
+-------------------------------------------------------------------------------
+-- Accessors definitions
+-------------------------------------------------------------------------------
+
+transportContext :: Accessor ValidTransportState ZMQ.Context
+transportContext = accessor _transportContext (\e t -> t{_transportContext = e})

@@ -102,6 +102,7 @@ import           System.IO
 import           System.ZMQ4
       ( Context )
 import qualified System.ZMQ4 as ZMQ
+import Data.Accessor (Accessor, accessor, (^.), (^=), (^:), (%:) )
 
 --------------------------------------------------------------------------------
 --- Internal datatypes                                                        --
@@ -964,7 +965,7 @@ apiNewMulticastGroup _params zmq lep = withMVar (_transportState zmq) $ \case
           repAddr = extractRepAddress addr
 
       -- subscriber api
-      sub <- ZMQ.socket (_transportContext vt) ZMQ.Sub
+      sub <- ZMQ.socket (vt ^. transportContext) ZMQ.Sub
       ZMQ.connect sub (B8.unpack subAddr)
       ZMQ.subscribe sub ""
 
@@ -996,9 +997,9 @@ apiNewMulticastGroup _params zmq lep = withMVar (_transportState zmq) $ \case
               )
   where
     mkPublisher vt = do
-      pub <- ZMQ.socket (_transportContext vt) ZMQ.Pub
+      pub <- ZMQ.socket (vt^.transportContext) ZMQ.Pub
       portPub <- ZMQ.bindRandomPort pub (B8.unpack $ transportAddress zmq)
-      rep <- ZMQ.socket (_transportContext vt) ZMQ.Rep
+      rep <- ZMQ.socket (vt^.transportContext) ZMQ.Rep
       portRep <- ZMQ.bindRandomPort rep (B8.unpack $ transportAddress zmq)
       wrkThread <- Async.async $ forever $ do
         msg <- ZMQ.receiveMulti rep
@@ -1013,9 +1014,9 @@ apiResolveMulticastGroup zmq lep addr = withMVar (_transportState zmq) $ \case
     LocalEndPointClosed -> return (LocalEndPointClosed, Left $ TransportError ResolveMulticastGroupFailed "Transport is closed.")
     LocalEndPointValid vl -> mask_ $ do
       -- socket allocation
-      req <- ZMQ.socket (_transportContext vt) ZMQ.Req
+      req <- ZMQ.socket (vt^.transportContext) ZMQ.Req
       ZMQ.connect req (B8.unpack reqAddr)
-      sub <- ZMQ.socket (_transportContext vt) ZMQ.Sub
+      sub <- ZMQ.socket (vt^.transportContext) ZMQ.Sub
       ZMQ.connect sub (B8.unpack subAddr)
       ZMQ.subscribe sub ""
 
