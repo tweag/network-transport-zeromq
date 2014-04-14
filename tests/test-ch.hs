@@ -20,7 +20,7 @@ import Test.Framework (defaultMain)
 
 main :: IO ()
 main = do
-    Right (zmqt, transport) <- createTransportEx defaultZMQParameters "127.0.0.1"
+    (zmqt, transport) <- createTransportEx defaultZMQParameters "127.0.0.1"
     defaultMain =<< tests TestTransport
       { testTransport = transport
       , testBreakConnection = breakConnection zmqt

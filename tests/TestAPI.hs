@@ -24,7 +24,7 @@ main = defaultMain $
 
 test_simple :: IO ()
 test_simple = do
-    Right transport <- createTransport defaultZMQParameters "127.0.0.1"
+    transport <- createTransport defaultZMQParameters "127.0.0.1"
     Right ep1 <- newEndPoint transport
     Right ep2 <- newEndPoint transport
     Right c1  <- connect ep1 (address ep2) ReliableOrdered defaultConnectHints
@@ -39,7 +39,7 @@ test_simple = do
 
 test_connectionBreak :: IO ()
 test_connectionBreak = do
-    Right (zmq, transport) <-
+    (zmq, transport) <-
       createTransportExposeInternals defaultZMQParameters "127.0.0.1"
     Right ep1 <- newEndPoint transport
     Right ep2 <- newEndPoint transport
@@ -71,7 +71,7 @@ test_connectionBreak = do
 
 test_multicast :: IO ()
 test_multicast = do
-    Right transport <- createTransport defaultZMQParameters "127.0.0.1"
+    transport <- createTransport defaultZMQParameters "127.0.0.1"
     Right ep1 <- newEndPoint transport
     Right ep2 <- newEndPoint transport
     Right g1 <- newMulticastGroup ep1
@@ -89,7 +89,7 @@ test_multicast = do
 
 test_auth :: IO ()
 test_auth = do
-    Right tr2 <-
+    tr2 <-
       createTransport defaultZMQParameters{ zmqSecurityMechanism =
                                               Just $ SecurityPlain "user" "password" }
                       "127.0.0.1"
@@ -105,14 +105,14 @@ test_auth = do
 
 test_nonexists :: IO ()
 test_nonexists = do
-    Right tr <- createTransport defaultZMQParameters "127.0.0.1"
+    tr <- createTransport defaultZMQParameters "127.0.0.1"
     Right ep <- newEndPoint tr
     Left (TransportError ConnectFailed _) <- connect ep (EndPointAddress "tcp://129.0.0.1:7684") ReliableOrdered defaultConnectHints
     closeTransport tr
 
 test_cleanup :: IO ()
 test_cleanup = do
-    Right (zmq, transport) <-
+    (zmq, transport) <-
       createTransportExposeInternals defaultZMQParameters "127.0.0.1"
     x <- newIORef (0::Int)
     Just _ <- registerCleanupAction zmq (modifyIORef x (+1))

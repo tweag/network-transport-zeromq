@@ -97,7 +97,7 @@ defaultBenchmark :: IO ()
 defaultBenchmark = do
   -- server
   void . forkOS $ do
-    Right transport <- createTransport defaultZMQParameters "127.0.0.1"
+    transport <- createTransport defaultZMQParameters "127.0.0.1"
     node <- newLocalNode transport initRemoteTable
     runProcess node $ initialServer
   
