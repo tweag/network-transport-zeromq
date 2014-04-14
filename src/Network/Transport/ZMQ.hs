@@ -310,14 +310,14 @@ apiNewEndPoint :: ZMQParameters -> TransportInternals -> IO (Either (TransportEr
 apiNewEndPoint params transport = do
     elep <- modifyMVar (transportState transport) $ \case
        TransportClosed -> return (TransportClosed, Left $ TransportError NewEndPointFailed "Transport is closed.")
-       v@(TransportValid i@(ValidTransportState ctx _ _ _)) -> do
-         eEndPoint <- endPointCreate params ctx (B8.unpack addr)
+       v@(TransportValid i) -> do
+         eEndPoint <- endPointCreate params (i ^. transportContext) (B8.unpack addr)
          case eEndPoint of
            Right (_port, ep, chan) -> return
              ( TransportValid
              . (transportEndPoints ^: (Map.insert (localEndPointAddress ep) ep))
              $ i
-             , Right (ep, ctx, chan)
+             , Right (ep, i ^. transportContext, chan)
              )
            Left _ -> return (v, Left $ TransportError NewEndPointFailed "Failed to create new endpoint.")
     case elep of
