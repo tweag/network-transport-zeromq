@@ -62,7 +62,6 @@ import           Control.Monad
       )
 import           Control.Exception
       ( AsyncException
-      , mapException
       )
 import           Control.Monad.Catch
       ( finally
@@ -106,7 +105,7 @@ import           System.IO
 import           System.ZMQ4
       ( Context )
 import qualified System.ZMQ4 as ZMQ
-import Data.Accessor (Accessor, accessor, (^.), (^=), (^:), (%:) )
+import Data.Accessor (Accessor, accessor, (^.), (^=), (^:) ) 
 
 --------------------------------------------------------------------------------
 --- Internal datatypes                                                        --
