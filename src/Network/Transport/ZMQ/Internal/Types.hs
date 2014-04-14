@@ -27,6 +27,7 @@ module Network.Transport.ZMQ.Internal.Types
   , LocalEndPointState(..)
   , ValidLocalEndPoint(..)
   , localEndPointChan
+  , localEndPointConnections
     -- ** ZeroMQ connection
   , ZMQConnection(..)
   , ZMQConnectionState(..)
@@ -266,6 +267,10 @@ transportSockets = accessor _transportSockets (\e t -> t{_transportSockets = e})
 
 localEndPointChan :: Accessor ValidLocalEndPoint (TMChan Event)
 localEndPointChan = accessor _localEndPointChan (\e t -> t{_localEndPointChan = e})
+
+localEndPointConnections :: Accessor ValidLocalEndPoint (Counter ConnectionId ZMQConnection)
+localEndPointConnections = accessor _localEndPointConnections (\e t -> t{_localEndPointConnections = e})
+
 --------------------------------------------------------------------------------
 -- Smart constructors
 --------------------------------------------------------------------------------
