@@ -947,13 +947,13 @@ unsafeConfigurePush :: TransportInternals
                     -> (ZMQ.Socket ZMQ.Push -> IO ())
                     -> IO ()
 unsafeConfigurePush zmqt from to f = withMVar (_transportState zmqt) $ \case
-    TransportValid v -> case from `Map.lookup` _transportEndPoints v of
-      Nothing -> return ()
-      Just x  -> withMVar (localEndPointState x) $ \case
+    TransportValid v -> Foldable.traverse_
+      (\x -> withMVar (localEndPointState x) $ \case
         LocalEndPointValid w -> case to `Map.lookup` _localEndPointRemotes w of
           Nothing -> return ()
           Just y  -> onValidRemote y $ f . _remoteEndPointChan
         LocalEndPointClosed   -> return ()
+      ) (from `Map.lookup` _transportEndPoints v)
     TransportClosed -> return ()
 
 apiNewMulticastGroup :: ZMQParameters -> TransportInternals -> LocalEndPoint -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
