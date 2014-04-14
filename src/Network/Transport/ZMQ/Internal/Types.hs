@@ -50,7 +50,7 @@ import Data.ByteString
 import Data.IORef
 import Data.IntMap (IntMap)
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict  as M
+import qualified Data.Map.Strict  as Map
 import           Data.Set
      ( Set
      )
@@ -216,10 +216,10 @@ nextElementM :: (Enum a, Ord a)
              -> Counter a b
              -> IO (Counter a b, (a,b))
 nextElementM t me (Counter n m) =
-    case n' `M.lookup` m of
-      Nothing -> mv >>= \v' -> return (Counter n' (M.insert n' v' m), (n', v'))
+    case n' `Map.lookup` m of
+      Nothing -> mv >>= \v' -> return (Counter n' (Map.insert n' v' m), (n', v'))
       Just v  -> t v >>= \case
-        True -> mv >>= \v' -> return (Counter n' (M.insert n' v' m), (n', v'))
+        True -> mv >>= \v' -> return (Counter n' (Map.insert n' v' m), (n', v'))
         False -> nextElementM t me (Counter n' m)
   where
     n' = succ n
@@ -231,10 +231,10 @@ nextElementM' :: (Enum a, Ord a)
               -> Counter a b
               -> IO (Counter a b, (a,c))
 nextElementM' t me (Counter n m) =
-    case n' `M.lookup` m of
-      Nothing -> mv >>= \(v',r) -> return (Counter n' (M.insert n' v' m), (n', r))
+    case n' `Map.lookup` m of
+      Nothing -> mv >>= \(v',r) -> return (Counter n' (Map.insert n' v' m), (n', r))
       Just v  -> t v >>= \case
-        True -> mv >>= \(v',r) -> return (Counter n' (M.insert n' v' m), (n', r))
+        True -> mv >>= \(v',r) -> return (Counter n' (Map.insert n' v' m), (n', r))
         False -> nextElementM' t me (Counter n' m)
   where
     n' = succ n
