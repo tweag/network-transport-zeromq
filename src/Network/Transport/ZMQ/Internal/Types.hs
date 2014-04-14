@@ -91,7 +91,7 @@ type TransportAddress = ByteString
 data TransportInternals = TransportInternals
   { transportAddress :: !TransportAddress
   -- ^ Transport address (used as identifier).
-  , _transportState  :: !(MVar TransportState)
+  , transportState  :: !(MVar TransportState)
   -- ^ Internal state.
   }
 

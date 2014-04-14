@@ -295,7 +295,7 @@ createTransportExposeInternals params host = do
 -- Synchronous
 apiTransportClose :: TransportInternals -> IO ()
 apiTransportClose transport = mask_ $ do
-    old <- swapMVar (_transportState transport) TransportClosed
+    old <- swapMVar (transportState transport) TransportClosed
     case old of
       TransportClosed -> return ()
       TransportValid v -> do
@@ -308,7 +308,7 @@ apiTransportClose transport = mask_ $ do
 
 apiNewEndPoint :: ZMQParameters -> TransportInternals -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
 apiNewEndPoint params transport = do
-    elep <- modifyMVar (_transportState transport) $ \case
+    elep <- modifyMVar (transportState transport) $ \case
        TransportClosed -> return (TransportClosed, Left $ TransportError NewEndPointFailed "Transport is closed.")
        v@(TransportValid i@(ValidTransportState ctx _ _ _)) -> do
          eEndPoint <- endPointCreate params ctx (B8.unpack addr)
@@ -356,7 +356,7 @@ apiCloseEndPoint transport lep = mask_ $ do
         void $ Async.waitCatch threadId
       LocalEndPointClosed -> return ()
     void $ swapMVar (localEndPointState lep) LocalEndPointClosed
-    modifyMVar_ (_transportState transport) $ \case
+    modifyMVar_ (transportState transport) $ \case
       TransportClosed  -> return TransportClosed
       TransportValid v -> return
         $ TransportValid
@@ -898,7 +898,7 @@ breakConnection :: TransportInternals
                 -> EndPointAddress
                 -> EndPointAddress
                 -> IO ()
-breakConnection zmqt _from to = Foldable.sequence_ <=<  withMVar (_transportState zmqt) $ \case
+breakConnection zmqt _from to = Foldable.sequence_ <=<  withMVar (transportState zmqt) $ \case
     TransportValid v -> Traversable.forM (v ^. transportEndPoints) $ \x ->
       withMVar (localEndPointState x) $ \case
         LocalEndPointValid w -> return $ Foldable.sequence_ $ flip Map.mapWithKey (_localEndPointRemotes w) $ \key rep ->
@@ -924,7 +924,7 @@ breakConnectionEndPoint :: TransportInternals
                         -> IO ()
 breakConnectionEndPoint zmqt from to = one from to >> one to from
   where
-    one f t = join $ withMVar (_transportState zmqt) $ \case
+    one f t = join $ withMVar (transportState zmqt) $ \case
       TransportValid v -> case v ^. transportEndPointAt f of
         Nothing -> afterP ()
         Just x  -> withMVar (localEndPointState x) $ \case
@@ -947,7 +947,7 @@ unsafeConfigurePush :: TransportInternals
                     -> EndPointAddress
                     -> (ZMQ.Socket ZMQ.Push -> IO ())
                     -> IO ()
-unsafeConfigurePush zmqt from to f = withMVar (_transportState zmqt) $ \case
+unsafeConfigurePush zmqt from to f = withMVar (transportState zmqt) $ \case
     TransportValid v -> Foldable.traverse_
       (\x -> withMVar (localEndPointState x) $ \case
         LocalEndPointValid w -> case to `Map.lookup` _localEndPointRemotes w of
@@ -958,7 +958,7 @@ unsafeConfigurePush zmqt from to f = withMVar (_transportState zmqt) $ \case
     TransportClosed -> return ()
 
 apiNewMulticastGroup :: ZMQParameters -> TransportInternals -> LocalEndPoint -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
-apiNewMulticastGroup _params zmq lep = withMVar (_transportState zmq) $ \case
+apiNewMulticastGroup _params zmq lep = withMVar (transportState zmq) $ \case
   TransportClosed -> return $ Left $ TransportError NewMulticastGroupFailed "Transport is closed."
   TransportValid vt -> modifyMVar (localEndPointState lep) $ \case
     LocalEndPointClosed -> return (LocalEndPointClosed, Left $ TransportError NewMulticastGroupFailed "Transport is closed.")
@@ -1014,7 +1014,7 @@ apiNewMulticastGroup _params zmq lep = withMVar (_transportState zmq) $ \case
       return (pub,portPub,rep,portRep, wrkThread)
 
 apiResolveMulticastGroup :: TransportInternals -> LocalEndPoint -> MulticastAddress -> IO (Either (TransportError ResolveMulticastGroupErrorCode) MulticastGroup)
-apiResolveMulticastGroup zmq lep addr = withMVar (_transportState zmq) $ \case
+apiResolveMulticastGroup zmq lep addr = withMVar (transportState zmq) $ \case
   TransportClosed -> return $ Left $ TransportError ResolveMulticastGroupFailed  "Transport is closed."
   TransportValid vt -> modifyMVar (localEndPointState lep) $ \case
     LocalEndPointClosed -> return (LocalEndPointClosed, Left $ TransportError ResolveMulticastGroupFailed "Transport is closed.")
@@ -1138,7 +1138,7 @@ apiMulticastClose = return ()
 
 -- | Register action that will be fired when transport will be closed.
 registerCleanupAction :: TransportInternals -> IO () -> IO (Maybe Unique)
-registerCleanupAction zmq fn = withMVar (_transportState zmq) $ \case
+registerCleanupAction zmq fn = withMVar (transportState zmq) $ \case
   TransportValid v -> registerValidCleanupAction v fn
   TransportClosed  -> return Nothing
 
@@ -1151,7 +1151,7 @@ registerValidCleanupAction v fn = Just <$> do
 
 -- | Call cleanup action before transport close.
 applyCleanupAction :: TransportInternals -> Unique -> IO ()
-applyCleanupAction zmq u = withMVar (_transportState zmq) $ \case
+applyCleanupAction zmq u = withMVar (transportState zmq) $ \case
   TransportValid v -> mask_ $
     traverse_ id =<< atomicModifyIORef' (v ^. transportSockets)
                                         (liftA2 (,) (IntMap.delete (hashUnique u))
