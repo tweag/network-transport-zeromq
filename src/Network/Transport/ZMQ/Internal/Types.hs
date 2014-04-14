@@ -28,6 +28,7 @@ module Network.Transport.ZMQ.Internal.Types
   , ValidLocalEndPoint(..)
   , localEndPointChan
   , localEndPointConnections
+  , localEndPointConnectionAt
     -- ** ZeroMQ connection
   , ZMQConnection(..)
   , ZMQConnectionState(..)
@@ -274,6 +275,9 @@ localEndPointChan = accessor _localEndPointChan (\e t -> t{_localEndPointChan = 
 localEndPointConnections :: Accessor ValidLocalEndPoint (Counter ConnectionId ZMQConnection)
 localEndPointConnections = accessor _localEndPointConnections (\e t -> t{_localEndPointConnections = e})
 
+localEndPointConnectionAt :: ConnectionId -> Accessor ValidLocalEndPoint (Maybe ZMQConnection)
+localEndPointConnectionAt idx = localEndPointConnections >>> counterValueAt idx
+
 counterNextId :: Accessor (Counter a b) a
 counterNextId = accessor _counterNext (\e t -> t{_counterNext = e})
 
@@ -282,7 +286,7 @@ counterValues = accessor _counterValue (\e t -> t{_counterValue = e})
 
 counterValueAt :: (Ord a) => a -> Accessor (Counter a b) (Maybe b)
 counterValueAt idx = counterValues >>> DAC.mapMaybe idx
---
+
 --------------------------------------------------------------------------------
 -- Smart constructors
 --------------------------------------------------------------------------------

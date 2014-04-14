@@ -475,11 +475,11 @@ endPointCreate params ctx addr = do
         MessageCloseConnection idx -> join $ do
           modifyMVar (localEndPointState ourEp) $ \case
             LocalEndPointValid v ->
-                case idx `Map.lookup` m of
+                case v ^. localEndPointConnectionAt idx of
                   Nothing  -> return (LocalEndPointValid v, return ())
                   Just conn -> do
                     old <- swapMVar (connectionState conn) ZMQConnectionFailed
-                    return ( LocalEndPointValid (localEndPointConnections ^= Counter i (idx `Map.delete` m) $ v)
+                    return ( LocalEndPointValid (localEndPointConnections ^: counterValues ^: (Map.delete idx) $ v)
                            , case old of
                                ZMQConnectionFailed -> return ()
                                ZMQConnectionInit -> return  () -- throwM InvariantViolation
@@ -487,8 +487,6 @@ endPointCreate params ctx addr = do
                                ZMQConnectionValid (ValidZMQConnection _ _) -> do
                                   atomically $ writeTMChan chan (ConnectionClosed idx)
                                   connectionCleanup (connectionRemoteEndPoint conn) idx)
-              where
-                (Counter i m) = v ^. localEndPointConnections
 	    LocalEndPointClosed -> return (LocalEndPointClosed, return ())
         MessageInitConnectionOk theirAddress ourId theirId -> do
           join $ withMVar (localEndPointState ourEp) $ \case
