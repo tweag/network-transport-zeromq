@@ -9,16 +9,32 @@ module Network.Transport.ZMQ.Internal.Types
     -- * Internal types
   , TransportInternals(..)
   , TransportState(..)
-  , ValidTransportState(..)
+  , mkTransportState
+    -- ** ValidTransportState
+  , ValidTransportState
+  , transportContext
+  , transportEndPoints
+  , transportEndPointAt
+  , transportAuth
+  , transportSockets
     -- ** RemoteEndPoint
   , RemoteEndPoint(..)
   , RemoteEndPointState(..)
   , ValidRemoteEndPoint(..)
   , ClosingRemoteEndPoint(..)
+  , remoteEndPointSocket
+  , remoteEndPointPendingConnections
     -- ** LocalEndPoint
   , LocalEndPoint(..)
   , LocalEndPointState(..)
   , ValidLocalEndPoint(..)
+  , localEndPointChan
+  , localEndPointConnections
+  , localEndPointConnectionAt
+  , localEndPointRemotes
+  , localEndPointRemoteAt
+  , localEndPointMulticastGroups
+
     -- ** ZeroMQ connection
   , ZMQConnection(..)
   , ZMQConnectionState(..)
@@ -29,12 +45,17 @@ module Network.Transport.ZMQ.Internal.Types
   , ValidMulticastGroup(..)
     -- * Internal data structures
   , Counter(..)
+  , counterNextId
+  , counterValues
+  , counterValueAt
   , nextElement
   , nextElement'
   , nextElementM
   , nextElementM'
   ) where
 
+import Control.Category ((>>>))
+import Control.Applicative
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TMChan
@@ -42,8 +63,9 @@ import Data.Word
 import Data.ByteString
 import Data.IORef
 import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict  as M
+import qualified Data.Map.Strict  as Map
 import           Data.Set
      ( Set
      )
@@ -55,6 +77,8 @@ import           System.ZMQ4
 import Network.Transport
 
 import qualified System.ZMQ4 as ZMQ
+import Data.Accessor (Accessor, accessor)
+import qualified Data.Accessor.Container as DAC (mapMaybe)
 
 
 -- | Parameters for ZeroMQ connection.
@@ -82,7 +106,7 @@ type TransportAddress = ByteString
 data TransportInternals = TransportInternals
   { transportAddress :: !TransportAddress
   -- ^ Transport address (used as identifier).
-  , _transportState  :: !(MVar TransportState)
+  , transportState  :: !(MVar TransportState)
   -- ^ Internal state.
   }
 
@@ -111,15 +135,15 @@ data LocalEndPointState
   | LocalEndPointClosed
 
 data ValidLocalEndPoint = ValidLocalEndPoint
-  { _localEndPointChan        :: !(TMChan Event)
+  {  localEndPointChan        :: !(TMChan Event)
     -- ^ channel for n-t - user communication
   , _localEndPointConnections :: !(Counter ConnectionId ZMQConnection)
     -- ^ list of incomming connections
   , _localEndPointRemotes     :: !(Map EndPointAddress RemoteEndPoint)
     -- ^ list of remote end points
-  , _localEndPointThread      :: !(Async ())
+  ,  localEndPointThread      :: !(Async ())
     -- ^ thread id
-  , _localEndPointOpened      :: !(IORef Bool)
+  ,  localEndPointOpened      :: !(IORef Bool)
     -- ^ is remote endpoint opened
   , _localEndPointMulticastGroups :: !(Map MulticastAddress ZMQMulticastGroup)
     -- ^ list of multicast nodes
@@ -158,7 +182,7 @@ data RemoteEndPointState
   | RemoteEndPointClosing ClosingRemoteEndPoint
 
 data ValidRemoteEndPoint = ValidRemoteEndPoint
-  { _remoteEndPointChan                 :: !(Socket Push)
+  {  remoteEndPointSocket               :: !(Socket Push)
   , _remoteEndPointPendingConnections   :: !(Counter ConnectionId ZMQConnection)
   , _remoteEndPointIncommingConnections :: !(Set ConnectionId)
   , _remoteEndPointOutgoingCount        :: !Int
@@ -183,8 +207,8 @@ data ValidMulticastGroup = ValidMulticastGroup
   }
 
 data Counter a b = Counter
-  { counterNext   :: !a
-  , counterValue  :: !(Map a b)
+  { _counterNext   :: !a
+  , _counterValue  :: !(Map a b)
   }
 
 nextElement :: (Enum a, Ord a)
@@ -207,10 +231,10 @@ nextElementM :: (Enum a, Ord a)
              -> Counter a b
              -> IO (Counter a b, (a,b))
 nextElementM t me (Counter n m) =
-    case n' `M.lookup` m of
-      Nothing -> mv >>= \v' -> return (Counter n' (M.insert n' v' m), (n', v'))
+    case n' `Map.lookup` m of
+      Nothing -> mv >>= \v' -> return (Counter n' (Map.insert n' v' m), (n', v'))
       Just v  -> t v >>= \case
-        True -> mv >>= \v' -> return (Counter n' (M.insert n' v' m), (n', v'))
+        True -> mv >>= \v' -> return (Counter n' (Map.insert n' v' m), (n', v'))
         False -> nextElementM t me (Counter n' m)
   where
     n' = succ n
@@ -222,11 +246,71 @@ nextElementM' :: (Enum a, Ord a)
               -> Counter a b
               -> IO (Counter a b, (a,c))
 nextElementM' t me (Counter n m) =
-    case n' `M.lookup` m of
-      Nothing -> mv >>= \(v',r) -> return (Counter n' (M.insert n' v' m), (n', r))
+    case n' `Map.lookup` m of
+      Nothing -> mv >>= \(v',r) -> return (Counter n' (Map.insert n' v' m), (n', r))
       Just v  -> t v >>= \case
-        True -> mv >>= \(v',r) -> return (Counter n' (M.insert n' v' m), (n', r))
+        True -> mv >>= \(v',r) -> return (Counter n' (Map.insert n' v' m), (n', r))
         False -> nextElementM' t me (Counter n' m)
   where
     n' = succ n
     mv = me n'
+
+
+-------------------------------------------------------------------------------
+-- Accessors definitions
+-------------------------------------------------------------------------------
+
+transportContext :: Accessor ValidTransportState ZMQ.Context
+transportContext = accessor _transportContext (\e t -> t{_transportContext = e})
+
+transportEndPoints :: Accessor ValidTransportState (Map EndPointAddress LocalEndPoint)
+transportEndPoints = accessor _transportEndPoints (\e t -> t{_transportEndPoints = e})
+
+transportEndPointAt :: EndPointAddress -> Accessor ValidTransportState (Maybe LocalEndPoint)
+transportEndPointAt addr = transportEndPoints >>> DAC.mapMaybe addr
+
+transportAuth :: Accessor ValidTransportState (Maybe (Async ()))
+transportAuth = accessor _transportAuth (\e t -> t{_transportAuth = e})
+
+transportSockets :: Accessor ValidTransportState (IORef (IntMap (IO ())))
+transportSockets = accessor _transportSockets (\e t -> t{_transportSockets = e})
+
+localEndPointConnections :: Accessor ValidLocalEndPoint (Counter ConnectionId ZMQConnection)
+localEndPointConnections = accessor _localEndPointConnections (\e t -> t{_localEndPointConnections = e})
+
+localEndPointConnectionAt :: ConnectionId -> Accessor ValidLocalEndPoint (Maybe ZMQConnection)
+localEndPointConnectionAt idx = localEndPointConnections >>> counterValueAt idx
+
+localEndPointRemotes :: Accessor ValidLocalEndPoint (Map EndPointAddress RemoteEndPoint)
+localEndPointRemotes = accessor _localEndPointRemotes (\e t -> t{_localEndPointRemotes = e})
+
+localEndPointRemoteAt :: EndPointAddress -> Accessor ValidLocalEndPoint (Maybe RemoteEndPoint)
+localEndPointRemoteAt addr = localEndPointRemotes >>> DAC.mapMaybe addr 
+
+localEndPointMulticastGroups :: Accessor ValidLocalEndPoint (Map MulticastAddress ZMQMulticastGroup)
+localEndPointMulticastGroups = accessor _localEndPointMulticastGroups (\e t -> t{_localEndPointMulticastGroups = e})
+
+remoteEndPointPendingConnections :: Accessor ValidRemoteEndPoint (Counter ConnectionId ZMQConnection)
+remoteEndPointPendingConnections = accessor _remoteEndPointPendingConnections (\e t -> t{_remoteEndPointPendingConnections = e})
+
+counterNextId :: Accessor (Counter a b) a
+counterNextId = accessor _counterNext (\e t -> t{_counterNext = e})
+
+counterValues :: Accessor (Counter a b) (Map a b)
+counterValues = accessor _counterValue (\e t -> t{_counterValue = e})
+
+counterValueAt :: (Ord a) => a -> Accessor (Counter a b) (Maybe b)
+counterValueAt idx = counterValues >>> DAC.mapMaybe idx
+
+--------------------------------------------------------------------------------
+-- Smart constructors
+--------------------------------------------------------------------------------
+mkTransportState :: ZMQ.Context -> Maybe (Async ()) -> IO TransportState
+
+mkTransportState ctx auth
+  = TransportValid <$>
+      (ValidTransportState
+         <$> pure ctx
+         <*> pure (Map.empty)
+         <*> pure auth
+         <*> newIORef IntMap.empty)
