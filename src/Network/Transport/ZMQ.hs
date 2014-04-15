@@ -61,7 +61,8 @@ import           Control.Monad
       , liftM2
       )
 import           Control.Exception
-      ( AsyncException )
+      ( AsyncException
+      )
 import           Control.Monad.Catch
       ( finally
       , try
@@ -95,7 +96,6 @@ import qualified Data.Set as Set
 import qualified Data.Traversable as Traversable
 import           Data.Typeable
 import           Data.Unique
-import           Data.Void
 import           GHC.Generics
       ( Generic )
 
@@ -105,7 +105,7 @@ import           System.IO
 import           System.ZMQ4
       ( Context )
 import qualified System.ZMQ4 as ZMQ
-import Data.Accessor (Accessor, accessor, (^.), (^=), (^:), (%:) )
+import Data.Accessor (Accessor, accessor, (^.), (^=), (^:) ) 
 
 --------------------------------------------------------------------------------
 --- Internal datatypes                                                        --
@@ -270,14 +270,14 @@ instance Exception ZMQError
 -- | Create 0MQ based transport.
 createTransport :: ZMQParameters
                 -> ByteString            -- ^ Transport address (IP or hostname)
-                -> IO (Either (TransportError Void) Transport)
-createTransport z b = fmap (fmap snd) (createTransportExposeInternals z b)
+                -> IO Transport
+createTransport z b = (fmap snd) (createTransportExposeInternals z b)
 
 -- | You should probably not use this function (used for unit testing only)
 createTransportExposeInternals
   :: ZMQParameters                       -- ^ Configuration parameters for ZeroMQ
   -> ByteString                          -- ^ Host name or IP address
-  -> IO (Either (TransportError Void) (TransportInternals, Transport))
+  -> IO (TransportInternals, Transport)
 createTransportExposeInternals params host = do
     ctx       <- ZMQ.context
     mtid <- Traversable.sequenceA $
@@ -286,7 +286,7 @@ createTransportExposeInternals params host = do
     transport <- TransportInternals
     	<$> pure addr
         <*> (newMVar =<< mkTransportState ctx mtid)
-    return $ Right (transport, Transport
+    return $ (transport, Transport
       { newEndPoint    = apiNewEndPoint params transport
       , closeTransport = apiTransportClose transport
       })

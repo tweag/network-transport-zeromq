@@ -46,7 +46,7 @@ main :: IO ()
 main = getArgs >>= \case
     [] -> defaultBench 
     [role, host] -> do
-       Right transport <- createTransport defaultZMQParameters (pack host)
+       transport <- createTransport defaultZMQParameters (pack host)
        node <- newLocalNode transport initRemoteTable
        case role of
          "SERVER" -> runProcess node initialServer

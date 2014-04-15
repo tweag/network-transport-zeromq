@@ -44,7 +44,6 @@ library
                       transformers >= 0.3,
                       semigroups >= 0.12,
                       exceptions >= 0.3,
-                      void >= 0.6,
                       random >= 1.0,
                       data-accessor >= 0.2
   exposed-modules:    Network.Transport.ZMQ
