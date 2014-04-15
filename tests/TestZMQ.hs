@@ -33,6 +33,9 @@ testTransport' newTransport = do
     , ("ExceptionOnReceive",    testExceptionOnReceive newTransport)
     , ("SendException",         testSendException newTransport)
     , ("Kill",                  testKill newTransport 100)
+                                -- testKill test have a timeconstraint so n-t-zmq
+                                -- fails to work with required speed, we need to
+                                -- reduce a number of tests here
     ]
   where
     numPings = 500 :: Int

@@ -61,19 +61,22 @@ import           Control.Monad
       , liftM2
       )
 import           Control.Exception
-      ( AsyncException
+      ( mapException
+      , catches
+      , throwIO
+      , Handler(..)
+      , evaluate
       )
 import           Control.Monad.Catch
       ( finally
       , try
-      , throwM
       , Exception
-      , SomeException
-      , fromException
+      , MonadCatch
+      , SomeException(..)
       , mask
       , mask_
       , uninterruptibleMask_
-      , onException
+      , throwM
       )
 import           Data.Binary
 import           Data.ByteString (ByteString)
@@ -101,11 +104,16 @@ import           GHC.Generics
 
 import Network.Transport
 import           System.IO
-      ( fixIO )
+      ( fixIO
+      , hPutStrLn
+      , stderr
+      )
 import           System.ZMQ4
       ( Context )
 import qualified System.ZMQ4 as ZMQ
-import Data.Accessor (Accessor, accessor, (^.), (^=), (^:) ) 
+import Data.Accessor ((^.), (^=), (^:) ) 
+
+import           Text.Printf
 
 --------------------------------------------------------------------------------
 --- Internal datatypes                                                        --
@@ -263,6 +271,7 @@ data ZMQError
   = InvariantViolation String
   | IncorrectState String
   | ConnectionFailed
+  | DriverError ZMQ.ZMQError
   deriving (Typeable, Show)
 
 instance Exception ZMQError
@@ -299,43 +308,39 @@ apiTransportClose transport = mask_ $ do
     old <- swapMVar (transportState transport) TransportClosed
     case old of
       TransportClosed -> return ()
-      TransportValid v -> do
-        Foldable.traverse_ (liftM2 (>>) Async.cancel Async.waitCatch)
-                           (v ^. transportAuth)
-        Foldable.sequence_ $ Map.map (apiCloseEndPoint transport)
-                                     (v ^. transportEndPoints)
-        Foldable.sequence_ =<< atomicModifyIORef' (v ^. transportSockets) (\x -> (IntMap.empty, x))
-        ZMQ.term (v ^. transportContext)
+      TransportValid v -> either errorLog return <=< tryZMQ $ do
+          Foldable.traverse_ (liftM2 (>>) Async.cancel Async.waitCatch)
+                             (v ^. transportAuth)
+          Foldable.sequence_ $ Map.map (apiCloseEndPoint transport)
+                                       (v ^. transportEndPoints)
+          Foldable.sequence_ =<< atomicModifyIORef' (v ^. transportSockets) (\x -> (IntMap.empty, x))
+          ZMQ.term (v ^. transportContext)
 
-apiNewEndPoint :: ZMQParameters -> TransportInternals -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
-apiNewEndPoint params transport = do
-    elep <- modifyMVar (transportState transport) $ \case
-       TransportClosed -> return (TransportClosed, Left $ TransportError NewEndPointFailed "Transport is closed.")
-       v@(TransportValid i) -> do
-         eEndPoint <- endPointCreate params (i ^. transportContext) (B8.unpack addr)
-         case eEndPoint of
-           Right (_port, ep, chan) -> return
-             ( TransportValid
-             . (transportEndPoints ^: (Map.insert (localEndPointAddress ep) ep))
-             $ i
-             , Right (ep, i ^. transportContext, chan)
-             )
-           Left _ -> return (v, Left $ TransportError NewEndPointFailed "Failed to create new endpoint.")
-    case elep of
-      Right (ep,ctx, chOut) ->
-        return $ Right $ EndPoint
-          { receive = atomically $ do
-              mx <- readTMChan chOut
-              case mx of
-                Nothing -> error "channel is closed"
-                Just x  -> return x
-          , address = localEndPointAddress ep
-          , connect = apiConnect params ctx ep
-          , closeEndPoint = apiCloseEndPoint transport ep
-          , newMulticastGroup = apiNewMulticastGroup params transport ep
-          , resolveMulticastGroup = apiResolveMulticastGroup transport ep
-          }
-      Left x -> return $ Left x
+apiNewEndPoint :: ZMQParameters
+               -> TransportInternals
+               -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
+apiNewEndPoint params transport = try $ mapZMQException (TransportError NewEndPointFailed . show) $
+   modifyMVar (transportState transport) $ \case
+       TransportClosed  -> throwM $ TransportError NewEndPointFailed "Transport is closed."
+       TransportValid i -> do
+         (ep, chan) <- endPointCreate params (i ^. transportContext) (B8.unpack addr)
+         return $
+           ( TransportValid
+           . (transportEndPoints ^: (Map.insert (localEndPointAddress ep) ep))
+           $ i
+           , EndPoint
+               { receive = atomically $ do
+                   mx <- readTMChan chan
+                   case mx of
+                     Nothing -> error "channel is closed"
+                     Just x  -> return x
+               , address = localEndPointAddress ep
+               , connect = apiConnect params (i ^. transportContext) ep
+               , closeEndPoint = apiCloseEndPoint transport ep
+               , newMulticastGroup = apiNewMulticastGroup params transport ep
+               , resolveMulticastGroup = apiResolveMulticastGroup transport ep
+               }
+           )
   where
     addr = transportAddress transport
 
@@ -343,7 +348,7 @@ apiNewEndPoint params transport = do
 apiCloseEndPoint :: TransportInternals
                  -> LocalEndPoint
                  -> IO ()
-apiCloseEndPoint transport lep = mask_ $ do
+apiCloseEndPoint transport lep = mask_ $ either errorLog return <=< tryZMQ $ do
     -- we don't close endpoint here because other threads,
     -- should be able to access local endpoint state
     old <- readMVar (localEndPointState lep)
@@ -367,33 +372,27 @@ apiCloseEndPoint transport lep = mask_ $ do
 endPointCreate :: ZMQParameters
                -> Context
                -> String
-               -> IO (Either (TransportError NewEndPointErrorCode) (Int,LocalEndPoint, TMChan Event))
-endPointCreate params ctx addr = do
-    em <- try $ do
-      pull <- ZMQ.socket ctx ZMQ.Pull
-      case zmqSecurityMechanism params of
+               -> IO (LocalEndPoint, TMChan Event)
+endPointCreate params ctx addr = promoteZMQException $ do
+    pull <- ZMQ.socket ctx ZMQ.Pull
+    case zmqSecurityMechanism params of
           Nothing -> return ()
           Just SecurityPlain{} -> do
               ZMQ.setPlainServer True pull
-      ZMQ.setSendHighWM (ZMQ.restrict (zmqHighWaterMark params)) pull
-      port <- ZMQ.bindRandomPort pull addr
-      return (port, pull)
-    case em of
-      Right (port, pull) -> (do
-          chOut <- newTMChanIO
-          lep   <- LocalEndPoint <$> pure (EndPointAddress $ B8.pack (addr ++ ":" ++ show port))
-                                 <*> newEmptyMVar
-                                 <*> pure port
-          opened <- newIORef True
-          mask $ \restore -> do
-              thread <- Async.async $ (restore (receiver pull lep chOut))
-                               `finally` finalizeEndPoint lep port pull
-              putMVar (localEndPointState lep) $ LocalEndPointValid
-                (ValidLocalEndPoint chOut (Counter 0 Map.empty) Map.empty thread opened Map.empty)
-              return $ Right (port, lep, chOut))
-          `onException` (ZMQ.closeZeroLinger pull)
-      Left (_e::SomeException)  -> do
-          return $ Left $ TransportError NewEndPointInsufficientResources "no free sockets"
+    ZMQ.setSendHighWM (ZMQ.restrict (zmqHighWaterMark params)) pull
+    port <- ZMQ.bindRandomPort pull addr
+
+    chOut <- newTMChanIO
+    lep   <- LocalEndPoint <$> pure (EndPointAddress $ B8.pack (addr ++ ":" ++ show port))
+                           <*> newEmptyMVar
+                           <*> pure port
+    opened <- newIORef True
+    mask $ \restore -> do
+      thread <- Async.async $ (restore (receiver pull lep chOut))
+                            `finally` finalizeEndPoint lep port pull
+      putMVar (localEndPointState lep) $ LocalEndPointValid
+              (ValidLocalEndPoint chOut (Counter 0 Map.empty) Map.empty thread opened Map.empty)
+      return (lep, chOut)
   where
 
     finalizer pull ourEp = forever $ do
@@ -554,52 +553,62 @@ endPointCreate params ctx addr = do
 
 apiSend :: ZMQConnection -> [ByteString] -> IO (Either (TransportError SendErrorCode) ())
 #ifdef UNSAFE_SEND
-apiSend c@(ZMQConnection l e _ s _) b = mask_ $ join $ withMVar s $ \case
-    ZMQConnectionInit   -> return $ yield >> apiSend c b
-    ZMQConnectionClosed -> afterP $ Left $ TransportError SendClosed "Connection is closed"
-    ZMQConnectionFailed -> afterP $ Left $ TransportError SendFailed "Connection is failed"
-    ZMQConnectionValid (ValidZMQConnection (Just ch) idx) -> do
-      o <-  readIORef (remoteEndPointOpened e)
-      if o
-      then do
-         evs <- ZMQ.events ch
-         if ZMQ.Out `elem` evs
-         then do ZMQ.sendMulti ch $ encode' (MessageData idx) :| b
-                 afterP $ Right ()
-         else return $ do
-            mz <- cleanupRemoteEndPoint l e Nothing
-            case mz of
-              Nothing -> return ()
-              Just z  -> do
-                onValidEndPoint l $ \v -> atomically $ writeTMChan (v ^. localEndPointChan) $
-                   ErrorEvent $ TransportError (EventConnectionLost (remoteEndPointAddress e)) "Exception on remote side"
-                closeRemoteEndPoint l e z
-            return $ Left $ TransportError SendFailed "Connection broken."
-      else afterP $ Left $ TransportError SendFailed "Connection broken."
-    _ -> afterP $ Left $ TransportError SendFailed "Incorrect channel."
+apiSend c@(ZMQConnection l e _ s _) b = fmap (either Left id) $
+    try (mapZMQException (TransportError SendFailed . show)) $ mask_ $ join $ withMVar s $ \case
+      ZMQConnectionInit   -> return $ yield >> apiSend c b
+      ZMQConnectionClosed -> afterP $ Left $ TransportError SendClosed "Connection is closed"
+      ZMQConnectionFailed -> afterP $ Left $ TransportError SendFailed "Connection is failed"
+      ZMQConnectionValid (ValidZMQConnection (Just ch) idx) -> do
+        o <-  readIORef (remoteEndPointOpened e)
+        if o
+        then do
+           evs <- ZMQ.events ch
+           if ZMQ.Out `elem` evs
+           then do ZMQ.sendMulti ch $ encode' (MessageData idx) :| b
+                   afterP $ Right ()
+           else return $ do
+              mz <- cleanupRemoteEndPoint l e Nothing
+              case mz of
+                Nothing -> return ()
+                Just z  -> do
+                  onValidEndPoint l $ \v -> atomically $ writeTMChan (v ^. localEndPointChan) $
+                     ErrorEvent $ TransportError (EventConnectionLost (remoteEndPointAddress e)) "Exception on remote side"
+                  closeRemoteEndPoint l e z
+              return $ Left $ TransportError SendFailed "Connection broken."
+        else afterP $ Left $ TransportError SendFailed "Connection broken."
+      _ -> afterP $ Left $ TransportError SendFailed "Incorrect channel."
 #else
-apiSend (ZMQConnection l e _ s _) b = mask_ $ do
-   result <- trySome inner
-   case result of
-     Left ex -> do
-       cleanup
-       return $ Left $ TransportError SendFailed (show ex)
-     Right x -> return x
+apiSend (ZMQConnection l e _ s _) b = do
+    eb  <- try $ mapM_ evaluate b
+    case eb of
+      -- Tests in network-transport-tests require to convert exceptions
+      -- during evaluation of the argument to returned error values.
+      Left ex ->  do cleanup
+                     return $ Left $ TransportError SendFailed (show (ex::SomeException))
+      Right _ -> (fmap Right inner) `catches`
+                   [ Handler $ \ex ->    -- TransportError - return, as all require
+                                         -- actions were performed
+                       return $ Left (ex :: TransportError SendErrorCode)
+                   , Handler $ \ex -> do -- ZMQError appeared exception
+                       cleanup
+                       return $ Left $ TransportError SendFailed (show (ex::ZMQError))
+                   ]
   where
+   inner :: IO ()
    inner = join $ withMVar (remoteEndPointState e) $ \x -> case x of
-     RemoteEndPointFailed -> afterP $ Left $ TransportError SendFailed "Remote end point is failed."
-     RemoteEndPointClosed -> afterP $ Left $ TransportError SendFailed "Remote end point is closed."
-     RemoteEndPointClosing{} -> afterP $ Left $ TransportError SendFailed "Remote end point is closing."
      RemoteEndPointPending{} -> return $ yield >> inner
+     RemoteEndPointFailed -> throwIO $ TransportError SendFailed "Remote end point is failed."
+     RemoteEndPointClosed -> throwIO $ TransportError SendFailed "Remote end point is closed."
+     RemoteEndPointClosing{} -> throwIO $ TransportError SendFailed "Remote end point is closing."
      RemoteEndPointValid v   -> withMVar s $ \case
        ZMQConnectionInit   -> return $ yield >> inner -- readMVar (connectionReady c) >> inner
-       ZMQConnectionClosed -> afterP $ Left $ TransportError SendClosed "Connection is closed"
-       ZMQConnectionFailed -> afterP $ Left $ TransportError SendFailed "Connection is failed"
+       ZMQConnectionClosed -> throwIO $ TransportError SendClosed "Connection is closed"
+       ZMQConnectionFailed -> throwIO $ TransportError SendFailed "Connection is failed"
        ZMQConnectionValid (ValidZMQConnection _ idx) -> do
          evs <- ZMQ.events (remoteEndPointSocket v)
          if ZMQ.Out `elem` evs
          then do ZMQ.sendMulti (remoteEndPointSocket v) $ encode' (MessageData idx) :| b
-                 afterP $ Right ()
+                 afterP ()
          else return $ do
             mz <- cleanupRemoteEndPoint l e Nothing
             case mz of
@@ -608,7 +617,7 @@ apiSend (ZMQConnection l e _ s _) b = mask_ $ do
                 onValidEndPoint l $ \w -> atomically $ writeTMChan (localEndPointChan w) $
                    ErrorEvent $ TransportError (EventConnectionLost (remoteEndPointAddress e)) "Exception on remote side"
                 closeRemoteEndPoint l e z
-            return $ Left $ TransportError SendFailed "Connection broken."
+            throwIO $ TransportError SendFailed "Connection broken."
    cleanup = do
      void $ cleanupRemoteEndPoint l e
        (Just $ \v -> ZMQ.send (remoteEndPointSocket v) [] $ encode' (MessageEndPointClose (localEndPointAddress l) False))
@@ -624,20 +633,16 @@ apiSend (ZMQConnection l e _ s _) b = mask_ $ do
 -- "think" that the connection is closed, and remote side will be contified
 -- only after connection will be up.
 apiClose :: ZMQConnection -> IO ()
-apiClose (ZMQConnection _ e _ s _) = uninterruptibleMask_ $ join $ do
+apiClose (ZMQConnection _ e _ s _) = either errorLog return <=< tryZMQ $ uninterruptibleMask_ $ join $ do
    modifyMVar s $ \case
-     ZMQConnectionInit   -> return (ZMQConnectionClosed, return ())
-     ZMQConnectionClosed -> return (ZMQConnectionClosed, return ())
-     ZMQConnectionFailed -> return (ZMQConnectionClosed, return ())
      ZMQConnectionValid (ValidZMQConnection _ idx) -> do
        return (ZMQConnectionClosed, do
          modifyMVar_ (remoteEndPointState e) $ \case
-           v@RemoteEndPointClosed    -> return v
-           v@RemoteEndPointClosing{} -> return v
-           v@RemoteEndPointFailed    -> return v
            v@RemoteEndPointValid{}   -> notify idx v
            v@(RemoteEndPointPending p) -> modifyIORef p (\xs -> notify idx : xs) >> return v
+           v -> return v
          )
+     _ -> return (ZMQConnectionClosed, return ())
   where
     notify _ RemoteEndPointFailed    = return RemoteEndPointFailed
     notify _ (RemoteEndPointClosing x) = return $ RemoteEndPointClosing x
@@ -654,36 +659,37 @@ apiConnect :: ZMQParameters
            -> Reliability
            -> ConnectHints
            -> IO (Either (TransportError ConnectErrorCode) Connection)
-apiConnect params ctx ourEp theirAddr reliability _hints = do
-    eRep <- createOrGetRemoteEndPoint params ctx ourEp theirAddr
-    case eRep of
-      Left{} -> return $ Left $ TransportError ConnectFailed "LocalEndPoint is closed."
-      Right rep -> do
-        conn <- ZMQConnection <$> pure ourEp
-                              <*> pure rep
-                              <*> pure reliability
-                              <*> newMVar ZMQConnectionInit
-                              <*> newEmptyMVar
-        let apiConn = Connection
-              { send = apiSend conn
-              , close = apiClose conn
-              }
-        join $ modifyMVar (remoteEndPointState rep) $ \w -> case w of
-          RemoteEndPointClosed -> do
-            return ( RemoteEndPointClosed
-                   , return $ Left $ TransportError ConnectFailed "Transport is closed.")
-          RemoteEndPointClosing x -> do
-            return ( RemoteEndPointClosing x
-                   , return $ Left $ TransportError ConnectFailed "RemoteEndPoint closed.")
-          RemoteEndPointValid _ -> do
-            s' <- go conn w
-            return (s', waitReady conn apiConn)
-          RemoteEndPointPending z -> do
-            modifyIORef z (\zs -> go conn : zs)
-            return ( RemoteEndPointPending z, waitReady conn apiConn)
-          RemoteEndPointFailed ->
-            return ( RemoteEndPointFailed
-                   , return $ Left $ TransportError ConnectFailed "RemoteEndPoint failed.")
+apiConnect params ctx ourEp theirAddr reliability _hints = fmap (either Left id) $  try $
+    mapZMQException (TransportError ConnectFailed . show) $ do 
+      eRep <- createOrGetRemoteEndPoint params ctx ourEp theirAddr
+      case eRep of
+        Left{} -> return $ Left $ TransportError ConnectFailed "LocalEndPoint is closed."
+        Right rep -> do
+          conn <- ZMQConnection <$> pure ourEp
+                                <*> pure rep
+                                <*> pure reliability
+                                <*> newMVar ZMQConnectionInit
+                                <*> newEmptyMVar
+          let apiConn = Connection
+                { send = apiSend conn
+                , close = apiClose conn
+                }
+          join $ modifyMVar (remoteEndPointState rep) $ \w -> case w of
+            RemoteEndPointClosed -> do
+              return ( RemoteEndPointClosed
+                     , return $ Left $ TransportError ConnectFailed "Transport is closed.")
+            RemoteEndPointClosing x -> do
+              return ( RemoteEndPointClosing x
+                     , return $ Left $ TransportError ConnectFailed "RemoteEndPoint closed.")
+            RemoteEndPointValid _ -> do
+              s' <- go conn w
+              return (s', waitReady conn apiConn)
+            RemoteEndPointPending z -> do
+              modifyIORef z (\zs -> go conn : zs)
+              return ( RemoteEndPointPending z, waitReady conn apiConn)
+            RemoteEndPointFailed ->
+              return ( RemoteEndPointFailed
+                     , return $ Left $ TransportError ConnectFailed "RemoteEndPoint failed.")
   where
     waitReady conn apiConn = join $ withMVar (connectionState conn) $ \case
       ZMQConnectionInit{}   -> return $ yield >> waitReady conn apiConn
@@ -884,12 +890,11 @@ onValidRemote rep f = withMVar (remoteEndPointState rep) $ \case
 afterP :: a -> IO (IO a)
 afterP = return . return
 
-trySome :: IO a -> IO (Either SomeException a)
-trySome f = try f >>= \case
-  Left e -> case (fromException e) of
-    Just m  -> throwM (m::AsyncException)
-    Nothing -> return $ Left e
-  Right x -> return $ Right x
+tryZMQ :: (MonadCatch m) => m a -> m (Either ZMQError a)
+tryZMQ = try . promoteZMQException
+
+mapZMQException :: (Exception e) => (ZMQError -> e) -> a -> a
+mapZMQException = mapException
 
 -- | Break endpoint connection, all endpoints that will be affected.
 breakConnection :: TransportInternals
@@ -1166,3 +1171,12 @@ extractPubAddress (MulticastAddress bs) = B8.init . fst $ B8.spanEnd (/=':') bs
 
 repeatWhile :: Monad m => (m Bool) -> m ()
 repeatWhile f = f >>= \x -> if x then repeatWhile f else return ()
+
+-- | Map ZMQ.ZMQError to network-transport ZMQError
+promoteZMQException :: a -> a
+promoteZMQException = mapException DriverError
+
+-- | Print error to standart output, this function should be used for
+-- errors that could not be handled in a normal way.
+errorLog :: Show a => a -> IO ()
+errorLog s = hPutStrLn stderr (printf "[network-transport-zeromq] Unhandled error: %s" $ show s)
