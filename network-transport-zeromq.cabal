@@ -23,6 +23,9 @@ Source-repository head
   Type: git
   Location: https://github.com/tweag/network-transport-zeromq
 
+extra-source-files:
+  ChangeLog.md
+
 flag install-benchmarks
   description:
     Build and install extra benchmarks executables (default benchmarks
