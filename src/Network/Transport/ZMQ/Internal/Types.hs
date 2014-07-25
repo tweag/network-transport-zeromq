@@ -1,7 +1,7 @@
 -- |
 -- Copyright: (C) 2014 EURL Tweag
 --
-
+{-# LANGUAGE CPP #-}
 module Network.Transport.ZMQ.Internal.Types
   ( ZMQParameters(..)
   , SecurityMechanism(..)
@@ -314,3 +314,9 @@ mkTransportState ctx auth
          <*> pure (Map.empty)
          <*> pure auth
          <*> newIORef IntMap.empty)
+
+#if ! MIN_VERSION_network_transport(0,4,0)
+instance Typeable Reliability
+instance Generic Reliability
+instance Binary Reliability
+#endif
