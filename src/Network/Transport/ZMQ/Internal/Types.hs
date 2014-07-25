@@ -22,13 +22,11 @@ module Network.Transport.ZMQ.Internal.Types
   , RemoteEndPointState(..)
   , ValidRemoteEndPoint(..)
   , ClosingRemoteEndPoint(..)
-  , remoteEndPointSocket
   , remoteEndPointPendingConnections
     -- ** LocalEndPoint
   , LocalEndPoint(..)
   , LocalEndPointState(..)
   , ValidLocalEndPoint(..)
-  , localEndPointChan
   , localEndPointConnections
   , localEndPointConnectionAt
   , localEndPointRemotes
