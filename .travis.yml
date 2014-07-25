@@ -8,30 +8,12 @@ before_install:
     - sudo apt-get update
     - sudo apt-get install libzmq3 libzmq3-dev git
     - cabal update
+    - cabal install cabal-install
+    - export PATH=~/.cabal/bin:$PATH
 
 install:
     - cabal sandbox init
-
-
-    - |
-      git clone git://github.com/haskell-distributed/network-transport
-      pushd network-transport
-      git checkout -b development origin/development
-      popd
-      cabal install ./network-transport --constraint=binary==0.7.1.0 --constraint=ansi-terminal==0.6.1.1 --contraint=zeromq-haskell>=0.6
-      git clone git://github.com/haskell-distributed/network-transport-tests
-      pushd network-transport-tests
-      git checkout -b development origin/development
-      popd
-      git clone git://github.com/qnikst/zeromq-haskell
-      pushd zeromq-haskell
-      git checkout -b development origin/fix-last-endpoint
-      popd
-      cabal sandbox add-source ./zeromq-haskell
-      cabal sandbox add-source ./network-transport
-      cabal sandbox add-source ./network-transport-tests
-
-    - cabal install --dependencies-only --enable-tests --enable-benchmarks --constraint=binary==0.7.1.0 --constraint=ansi-terminal==0.6.1.1 --contraint=zeromq-haskell>=0.6
+    - cabal install --dependencies-only --enable-tests --enable-benchmarks --allow-newer=mtl,ansi-terminal,network-transport,base
 
 script:
     - cabal configure --enable-tests --enable-benchmarks && cabal build && cabal test && cabal bench
