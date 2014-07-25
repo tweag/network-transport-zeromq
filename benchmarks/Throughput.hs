@@ -83,7 +83,7 @@ main :: IO ()
 main = getArgs >>= \case 
   [] -> defaultBenchmark
   [role, host] -> do 
-      Right transport <- createTransport defaultZMQParameters (pack host)
+      transport <- createTransport defaultZMQParameters (pack host)
       node <- newLocalNode transport initRemoteTable
       case role of
         "SERVER" -> runProcess node initialServer
@@ -106,7 +106,7 @@ defaultBenchmark = do
   void . forkOS $ do
     putStrLn "packet size  time\n---          ---\n"
     forM_ [1,10,100,200,600,800,1000,2000,4000] $ \i -> do
-        Right transport <- createTransport defaultZMQParameters "127.0.0.1"
+        transport <- createTransport defaultZMQParameters "127.0.0.1"
         node <- newLocalNode transport initRemoteTable
         d <- time_ $ runProcess node $ initialClient (1000,i)
         printf "%-8i %10.4f\n" i d

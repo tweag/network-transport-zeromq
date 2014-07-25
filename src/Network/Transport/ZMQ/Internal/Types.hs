@@ -1,7 +1,7 @@
 -- |
 -- Copyright: (C) 2014 EURL Tweag
 --
-
+{-# LANGUAGE CPP #-}
 module Network.Transport.ZMQ.Internal.Types
   ( ZMQParameters(..)
   , SecurityMechanism(..)

@@ -31,6 +31,7 @@ install:
       cabal sandbox add-source ./network-transport
       cabal sandbox add-source ./network-transport-tests
 
-    - cabal install --dependencies-only --enable-tests --constraint=binary==0.7.1.0 --constraint=ansi-terminal==0.6.1.1 --contraint=zeromq-haskell>=0.6
+    - cabal install --dependencies-only --enable-tests --enable-benchmarks --constraint=binary==0.7.1.0 --constraint=ansi-terminal==0.6.1.1 --contraint=zeromq-haskell>=0.6
 
-
+script:
+    - cabal configure --enable-tests --enable-benchmarks && cabal build && cabal test && cabal bench
