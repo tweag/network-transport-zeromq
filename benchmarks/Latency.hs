@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings, LambdaCase #-}
-module Latency where
+module Main where
 
 import Control.Applicative
 import Control.Monad (void, forM_, forever, replicateM_)
@@ -52,7 +52,7 @@ defaultBenchmark :: IO ()
 defaultBenchmark = do
   -- server
   void . forkOS $ do
-    Right transport <- createTransport defaultZMQParameters "127.0.0.1"
+    transport <- createTransport defaultZMQParameters "127.0.0.1"
     node <- newLocalNode transport initRemoteTable
     runProcess node $ initialServer
   
@@ -61,7 +61,7 @@ defaultBenchmark = do
   void . forkOS $ do
     putStrLn "pings        time\n---          ---\n"
     forM_ [100,200,600,800,1000,2000,5000,8000,10000] $ \i -> do
-        Right transport <- createTransport defaultZMQParameters "127.0.0.1"
+        transport <- createTransport defaultZMQParameters "127.0.0.1"
         node <- newLocalNode transport initRemoteTable
         d <- time_ (runProcess node $ initialClient i)
         printf "%-8i %10.4f\n" i d
