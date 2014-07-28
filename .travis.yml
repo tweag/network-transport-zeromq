@@ -1,7 +1,10 @@
 language: haskell
 ghc:
   - 7.6
-# - 7.4
+  - 7.8
+
+env:
+  - CONSTRAINT=--constraint=network-transport==0.4.0.0
 
 before_install:
     - sudo add-apt-repository ppa:chris-lea/zeromq -y
@@ -13,7 +16,7 @@ before_install:
 
 install:
     - cabal sandbox init
-    - cabal install --dependencies-only --enable-tests --enable-benchmarks --allow-newer=mtl,ansi-terminal,network-transport,base
+    - cabal install --dependencies-only --enable-tests --enable-benchmarks --allow-newer=mtl,ansi-terminal,network-transport,base $CONSTRAINT
 
 script:
-    - cabal configure --enable-tests --enable-benchmarks && cabal build && cabal test && cabal bench
+    - cabal configure --enable-tests --enable-benchmarks $CONSTRAINT && cabal build && cabal test && cabal bench
