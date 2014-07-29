@@ -63,18 +63,20 @@ import           Control.Monad
 import           Control.Exception
       ( AsyncException
       , mapException
+      , catches
+      , throwIO
+      , Handler(..)
       )
 import           Control.Monad.Catch
       ( finally
       , try
-      , throwM
       , Exception
       , SomeException
       , MonadCatch
-      , fromException
       , mask
       , mask_
       , uninterruptibleMask_
+      , throwM
       )
 import           Data.Binary
 import           Data.ByteString (ByteString)
@@ -576,29 +578,33 @@ apiSend c@(ZMQConnection l e _ s _) b = fmap (either Left id) $
         else afterP $ Left $ TransportError SendFailed "Connection broken."
       _ -> afterP $ Left $ TransportError SendFailed "Incorrect channel."
 #else
-apiSend (ZMQConnection l e _ s _) b = fmap (either Left id) $
-   try $ mapZMQException (TransportError SendFailed . show) $ mask_ $ do
-     result <- trySomeNoAsync inner
-     case result of
-       Left ex -> do
-         cleanup
-         return $ Left $ TransportError SendFailed (show ex)
-       Right x -> return x
+apiSend (ZMQConnection l e _ s _) b =
+    (fmap Right inner) `catches`
+       [ Handler $ \ex ->    -- TransportError - return, as all require
+                             -- actions were performed
+           return $ Left (ex :: TransportError SendErrorCode)
+       , Handler $ \ex -> do -- Perform cleanup actions and rethrow
+           throwIO (ex::AsyncException)
+       , Handler $ \ex -> do -- AllExceptions exception
+           cleanup
+           return $ Left $ TransportError SendFailed (show (ex::SomeException))
+       ]
   where
+   inner :: IO ()
    inner = join $ withMVar (remoteEndPointState e) $ \x -> case x of
-     RemoteEndPointFailed -> afterP $ Left $ TransportError SendFailed "Remote end point is failed."
-     RemoteEndPointClosed -> afterP $ Left $ TransportError SendFailed "Remote end point is closed."
-     RemoteEndPointClosing{} -> afterP $ Left $ TransportError SendFailed "Remote end point is closing."
      RemoteEndPointPending{} -> return $ yield >> inner
+     RemoteEndPointFailed -> throwIO $ TransportError SendFailed "Remote end point is failed."
+     RemoteEndPointClosed -> throwIO $ TransportError SendFailed "Remote end point is closed."
+     RemoteEndPointClosing{} -> throwIO $ TransportError SendFailed "Remote end point is closing."
      RemoteEndPointValid v   -> withMVar s $ \case
        ZMQConnectionInit   -> return $ yield >> inner -- readMVar (connectionReady c) >> inner
-       ZMQConnectionClosed -> afterP $ Left $ TransportError SendClosed "Connection is closed"
-       ZMQConnectionFailed -> afterP $ Left $ TransportError SendFailed "Connection is failed"
+       ZMQConnectionClosed -> throwIO $ TransportError SendClosed "Connection is closed"
+       ZMQConnectionFailed -> throwIO $ TransportError SendFailed "Connection is failed"
        ZMQConnectionValid (ValidZMQConnection _ idx) -> do
          evs <- ZMQ.events (remoteEndPointSocket v)
          if ZMQ.Out `elem` evs
          then do ZMQ.sendMulti (remoteEndPointSocket v) $ encode' (MessageData idx) :| b
-                 afterP $ Right ()
+                 afterP $ ()
          else return $ do
             mz <- cleanupRemoteEndPoint l e Nothing
             case mz of
@@ -607,7 +613,7 @@ apiSend (ZMQConnection l e _ s _) b = fmap (either Left id) $
                 onValidEndPoint l $ \w -> atomically $ writeTMChan (localEndPointChan w) $
                    ErrorEvent $ TransportError (EventConnectionLost (remoteEndPointAddress e)) "Exception on remote side"
                 closeRemoteEndPoint l e z
-            return $ Left $ TransportError SendFailed "Connection broken."
+            throwIO $ TransportError SendFailed "Connection broken."
    cleanup = do
      void $ cleanupRemoteEndPoint l e
        (Just $ \v -> ZMQ.send (remoteEndPointSocket v) [] $ encode' (MessageEndPointClose (localEndPointAddress l) False))
@@ -879,13 +885,6 @@ onValidRemote rep f = withMVar (remoteEndPointState rep) $ \case
 
 afterP :: a -> IO (IO a)
 afterP = return . return
-
-trySomeNoAsync :: IO a -> IO (Either SomeException a)
-trySomeNoAsync f = try f >>= \case
-  Left e -> case (fromException e) of
-    Just m  -> throwM (m::AsyncException)
-    Nothing -> return $ Left e
-  Right x -> return $ Right x
 
 tryZMQ :: (MonadCatch m) => m a -> m (Either ZMQError a)
 tryZMQ = try . promoteZMQException
