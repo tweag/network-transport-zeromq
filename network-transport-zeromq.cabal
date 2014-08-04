@@ -51,7 +51,8 @@ library
                       semigroups >= 0.12,
                       exceptions >= 0.3,
                       random >= 1.0,
-                      data-accessor >= 0.2
+                      data-accessor >= 0.2,
+                      temporary >= 1.2
   exposed-modules:    Network.Transport.ZMQ
                       Network.Transport.ZMQ.Internal
                       Network.Transport.ZMQ.Internal.Types

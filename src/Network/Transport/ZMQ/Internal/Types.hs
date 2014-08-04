@@ -7,6 +7,7 @@ module Network.Transport.ZMQ.Internal.Types
   , SecurityMechanism(..)
   , defaultZMQParameters
     -- * Internal types
+  , TransportAddress(..)
   , TransportInternals(..)
   , TransportState(..)
   , mkTransportState
@@ -101,7 +102,15 @@ data SecurityMechanism
   , plainUsername :: ByteString
   } -- ^ Clear-text authentication, using a (username, password) pair.
 
-type TransportAddress = ByteString
+-- | Name of ZeromMQ transport.
+--
+data TransportAddress 
+  = TCP { tcpHost      :: !ByteString     -- ^ Hostname
+        }
+  | IPC { ipcDirectory :: !String         -- ^ Directory where socket will be stored
+        , ipcTemplate  :: !String         -- ^ Socket name pattern, use XXX in place where random value will be inserted, e.g. socketXXX.ipc
+	}
+  deriving (Eq, Show)
 
 -- | Transport data type.
 data TransportInternals = TransportInternals
@@ -130,7 +139,6 @@ data ValidTransportState = ValidTransportState
 data LocalEndPoint = LocalEndPoint
   { localEndPointAddress :: !EndPointAddress
   , localEndPointState   :: !(MVar LocalEndPointState)
-  , localEndPointPort    :: !Int
   }
 
 data LocalEndPointState
