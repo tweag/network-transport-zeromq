@@ -61,18 +61,18 @@ import           Control.Monad
       , liftM2
       )
 import           Control.Exception
-      ( AsyncException
-      , mapException
+      ( mapException
       , catches
       , throwIO
       , Handler(..)
+      , evaluate
       )
 import           Control.Monad.Catch
       ( finally
       , try
       , Exception
-      , SomeException
       , MonadCatch
+      , SomeException(..)
       , mask
       , mask_
       , uninterruptibleMask_
@@ -578,17 +578,23 @@ apiSend c@(ZMQConnection l e _ s _) b = fmap (either Left id) $
         else afterP $ Left $ TransportError SendFailed "Connection broken."
       _ -> afterP $ Left $ TransportError SendFailed "Incorrect channel."
 #else
-apiSend (ZMQConnection l e _ s _) b =
-    (fmap Right inner) `catches`
-       [ Handler $ \ex ->    -- TransportError - return, as all require
-                             -- actions were performed
-           return $ Left (ex :: TransportError SendErrorCode)
-       , Handler $ \ex -> do -- Perform cleanup actions and rethrow
-           throwIO (ex::AsyncException)
-       , Handler $ \ex -> do -- AllExceptions exception
-           cleanup
-           return $ Left $ TransportError SendFailed (show (ex::SomeException))
-       ]
+apiSend (ZMQConnection l e _ s _) b = do
+    eb  <- try $ evaluate b
+    case eb of
+      Left ex ->  do cleanup
+                     return $ Left $ TransportError SendFailed (show (ex::SomeException))
+      Right _ -> (fmap Right inner) `catches`
+                   [ Handler $ \ex ->    -- TransportError - return, as all require
+                                         -- actions were performed
+                       return $ Left (ex :: TransportError SendErrorCode)
+                   , Handler $ \ex -> do -- ZMQError appeared exception
+                       cleanup
+                       return $ Left $ TransportError SendFailed (show (ex::ZMQError))
+                   , Handler $ \ex -> do -- XXX: we assume that all exceptions that were
+                                         -- sent by zeromq are already cought.
+                       cleanup
+                       throwIO (ex::SomeException)
+                   ]
   where
    inner :: IO ()
    inner = join $ withMVar (remoteEndPointState e) $ \x -> case x of
@@ -604,7 +610,7 @@ apiSend (ZMQConnection l e _ s _) b =
          evs <- ZMQ.events (remoteEndPointSocket v)
          if ZMQ.Out `elem` evs
          then do ZMQ.sendMulti (remoteEndPointSocket v) $ encode' (MessageData idx) :| b
-                 afterP $ ()
+                 afterP ()
          else return $ do
             mz <- cleanupRemoteEndPoint l e Nothing
             case mz of
