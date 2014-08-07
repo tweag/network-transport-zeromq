@@ -579,7 +579,7 @@ apiSend c@(ZMQConnection l e _ s _) b = fmap (either Left id) $
       _ -> afterP $ Left $ TransportError SendFailed "Incorrect channel."
 #else
 apiSend (ZMQConnection l e _ s _) b = do
-    eb  <- try $ evaluate b
+    eb  <- try $ mapM_ evaluate b
     case eb of
       Left ex ->  do cleanup
                      return $ Left $ TransportError SendFailed (show (ex::SomeException))
