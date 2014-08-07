@@ -592,7 +592,7 @@ apiSend (ZMQConnection l e _ s _) b = do
                        return $ Left $ TransportError SendFailed (show (ex::ZMQError))
                    , Handler $ \ex -> do -- XXX: we assume that all exceptions that were
                                          -- sent by zeromq are already cought.
-                       cleanup
+--                       cleanup
                        throwIO (ex::SomeException)
                    ]
   where
