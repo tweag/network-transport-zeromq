@@ -581,6 +581,8 @@ apiSend c@(ZMQConnection l e _ s _) b = fmap (either Left id) $
 apiSend (ZMQConnection l e _ s _) b = do
     eb  <- try $ mapM_ evaluate b
     case eb of
+      -- Tests in network-transport-tests require to convert exceptions
+      -- during evaluation of the argument to returned error values.
       Left ex ->  do cleanup
                      return $ Left $ TransportError SendFailed (show (ex::SomeException))
       Right _ -> (fmap Right inner) `catches`
@@ -590,10 +592,6 @@ apiSend (ZMQConnection l e _ s _) b = do
                    , Handler $ \ex -> do -- ZMQError appeared exception
                        cleanup
                        return $ Left $ TransportError SendFailed (show (ex::ZMQError))
-                   , Handler $ \ex -> do -- XXX: we assume that all exceptions that were
-                                         -- sent by zeromq are already cought.
---                       cleanup
-                       throwIO (ex::SomeException)
                    ]
   where
    inner :: IO ()
