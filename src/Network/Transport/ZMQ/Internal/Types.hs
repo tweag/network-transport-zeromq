@@ -216,10 +216,12 @@ data Counter a b = Counter
 
 -- | A list of Hints provided for connection
 data Hints = Hints
-  { hintPort :: Maybe Int }
+  { hintPort :: Maybe Int                   -- ^ Specify port to bing
+  , hintControlPort :: Maybe Int            -- ^ Specify port that is used to receive multicast messages
+  }
 
 defaultHints :: Hints
-defaultHints = Hints Nothing
+defaultHints = Hints Nothing Nothing
 
 nextElement :: (Enum a, Ord a)
             => (b -> IO Bool)

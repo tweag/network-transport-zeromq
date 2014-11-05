@@ -23,6 +23,7 @@ module Network.Transport.ZMQ
   -- * ZeroMQ specific functionality
   -- $zeromqs
   , Hints(..)
+  , defaultHints
   , apiNewEndPoint
   -- * Internals
   -- $internals
@@ -345,7 +346,7 @@ apiNewEndPoint hints transport = try $ mapZMQException (TransportError NewEndPoi
                , address = localEndPointAddress ep
                , connect = apiConnect (transportParameters transport) (i ^. transportContext) ep
                , closeEndPoint = apiCloseEndPoint transport ep
-               , newMulticastGroup = apiNewMulticastGroup transport ep
+               , newMulticastGroup = apiNewMulticastGroup defaultHints transport ep
                , resolveMulticastGroup = apiResolveMulticastGroup transport ep
                }
            )
@@ -972,8 +973,23 @@ unsafeConfigurePush zmqt from to f = withMVar (transportState zmqt) $ \case
       ) (v ^. transportEndPointAt from)
     TransportClosed -> return ()
 
-apiNewMulticastGroup :: TransportInternals -> LocalEndPoint -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
-apiNewMulticastGroup zmq lep = withMVar (transportState zmq) $ \case
+-- | Create a new multicast group associated with EndPoint.
+--
+-- For multicast addresses zeromq uses 2 sockets one: Pub-Sub sockets for multicast
+-- delivery and one Req-Rep socket for sending messages to the EndPoint, and that
+-- endpoint will retransmit messages to all subscribers.
+--
+-- If Hints are used to specify ports then the address will have the form:
+--
+-- >  host:Port:ControlPort
+--
+-- where Port is 'hintsPort' and ControlPort is 'hintsControlPort'. If hint port 
+-- is not specified then random ports will be used.
+apiNewMulticastGroup :: Hints                                   -- ^ Multicast group hints
+                     -> TransportInternals                      -- ^ Internal transport state
+                     -> LocalEndPoint                           -- ^ EndPoint that is associated with multicast group
+                     -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
+apiNewMulticastGroup hints zmq lep = withMVar (transportState zmq) $ \case
   TransportClosed -> return $ Left $ TransportError NewMulticastGroupFailed "Transport is closed."
   TransportValid vt -> modifyMVar (localEndPointState lep) $ \case
     LocalEndPointClosed -> return (LocalEndPointClosed, Left $ TransportError NewMulticastGroupFailed "Transport is closed.")
@@ -1019,9 +1035,15 @@ apiNewMulticastGroup zmq lep = withMVar (transportState zmq) $ \case
   where
     mkPublisher vt = do
       pub <- ZMQ.socket (vt^.transportContext) ZMQ.Pub
-      portPub <- ZMQ.bindRandomPort pub (B8.unpack $ transportAddress zmq)
+      portPub <- case hintPort hints of
+                   Nothing -> ZMQ.bindRandomPort pub (B8.unpack $ transportAddress zmq)
+                   Just i  -> do ZMQ.bind pub (B8.unpack (transportAddress zmq) ++ ":" ++ show i)
+                                 return i
       rep <- ZMQ.socket (vt^.transportContext) ZMQ.Rep
-      portRep <- ZMQ.bindRandomPort rep (B8.unpack $ transportAddress zmq)
+      portRep <- case hintControlPort hints of
+                   Nothing -> ZMQ.bindRandomPort rep (B8.unpack $ transportAddress zmq)
+                   Just i  -> do ZMQ.bind rep (B8.unpack (transportAddress zmq) ++ ":" ++ show i)
+                                 return i
       wrkThread <- Async.async $ forever $ do
         msg <- ZMQ.receiveMulti rep
         ZMQ.sendMulti pub $ "" :| msg
