@@ -41,6 +41,9 @@ module Network.Transport.ZMQ.Internal.Types
   , ZMQMulticastGroup(..)
   , MulticastGroupState(..)
   , ValidMulticastGroup(..)
+    -- * ZeroMQ specific types
+  , Hints(..)
+  , defaultHints
     -- * Internal data structures
   , Counter(..)
   , counterNextId
@@ -106,6 +109,8 @@ data TransportInternals = TransportInternals
   -- ^ Transport address (used as identifier).
   , transportState  :: !(MVar TransportState)
   -- ^ Internal state.
+  , transportParameters :: !ZMQParameters
+  -- ^ Parameters that were used to create the transport.
   }
 
 -- | Transport state.
@@ -208,6 +213,15 @@ data Counter a b = Counter
   { _counterNext   :: !a
   , _counterValue  :: !(Map a b)
   }
+
+-- | A list of Hints provided for connection
+data Hints = Hints
+  { hintsPort :: Maybe Int                   -- ^ The port to bind.
+  , hintsControlPort :: Maybe Int            -- ^ The port that is used to receive multicast messages.
+  }
+
+defaultHints :: Hints
+defaultHints = Hints Nothing Nothing
 
 nextElement :: (Enum a, Ord a)
             => (b -> IO Bool)

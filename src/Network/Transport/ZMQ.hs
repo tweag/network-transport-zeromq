@@ -20,6 +20,11 @@ module Network.Transport.ZMQ
   , ZMQParameters(..)
   , SecurityMechanism(..)
   , defaultZMQParameters
+  -- * ZeroMQ specific functionality
+  -- $zeromqs
+  , Hints(..)
+  , defaultHints
+  , apiNewEndPoint
   -- * Internals
   -- $internals
   , createTransportExposeInternals
@@ -293,10 +298,11 @@ createTransportExposeInternals params host = do
             fmap (\(SecurityPlain user pass) -> ZMQ.authManager ctx user pass) $
                  zmqSecurityMechanism params
     transport <- TransportInternals
-    	<$> pure addr
+        <$> pure addr
         <*> (newMVar =<< mkTransportState ctx mtid)
+	<*> pure params
     return $ (transport, Transport
-      { newEndPoint    = apiNewEndPoint params transport
+      { newEndPoint    = apiNewEndPoint defaultHints transport
       , closeTransport = apiTransportClose transport
       })
   where
@@ -316,14 +322,17 @@ apiTransportClose transport = mask_ $ do
           Foldable.sequence_ =<< atomicModifyIORef' (v ^. transportSockets) (\x -> (IntMap.empty, x))
           ZMQ.term (v ^. transportContext)
 
-apiNewEndPoint :: ZMQParameters
-               -> TransportInternals
+-- | Creates a new endpoint on the transport specified and applies all hints.
+apiNewEndPoint :: Hints                       -- ^ Hints to apply.
+               -> TransportInternals          -- ^ Internal transport state.
                -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
-apiNewEndPoint params transport = try $ mapZMQException (TransportError NewEndPointFailed . show) $
+apiNewEndPoint hints transport = try $ mapZMQException (TransportError NewEndPointFailed . show) $
    modifyMVar (transportState transport) $ \case
        TransportClosed  -> throwM $ TransportError NewEndPointFailed "Transport is closed."
        TransportValid i -> do
-         (ep, chan) <- endPointCreate params (i ^. transportContext) (B8.unpack addr)
+         (ep, chan) <- endPointCreate hints (transportParameters transport)
+                                            (i ^. transportContext)
+                                            (B8.unpack addr)
          return $
            ( TransportValid
            . (transportEndPoints ^: (Map.insert (localEndPointAddress ep) ep))
@@ -335,9 +344,9 @@ apiNewEndPoint params transport = try $ mapZMQException (TransportError NewEndPo
                      Nothing -> error "channel is closed"
                      Just x  -> return x
                , address = localEndPointAddress ep
-               , connect = apiConnect params (i ^. transportContext) ep
+               , connect = apiConnect (transportParameters transport) (i ^. transportContext) ep
                , closeEndPoint = apiCloseEndPoint transport ep
-               , newMulticastGroup = apiNewMulticastGroup params transport ep
+               , newMulticastGroup = apiNewMulticastGroup defaultHints transport ep
                , resolveMulticastGroup = apiResolveMulticastGroup transport ep
                }
            )
@@ -369,18 +378,22 @@ apiCloseEndPoint transport lep = mask_ $ either errorLog return <=< tryZMQ $ do
         . (transportEndPoints ^: (Map.delete (localEndPointAddress lep)))
         $ v
 
-endPointCreate :: ZMQParameters
+endPointCreate :: Hints
+               -> ZMQParameters
                -> Context
                -> String
                -> IO (LocalEndPoint, TMChan Event)
-endPointCreate params ctx addr = promoteZMQException $ do
+endPointCreate hints params ctx addr = promoteZMQException $ do
     pull <- ZMQ.socket ctx ZMQ.Pull
     case zmqSecurityMechanism params of
           Nothing -> return ()
           Just SecurityPlain{} -> do
               ZMQ.setPlainServer True pull
     ZMQ.setSendHighWM (ZMQ.restrict (zmqHighWaterMark params)) pull
-    port <- ZMQ.bindRandomPort pull addr
+    port <- case hintsPort hints of
+              Nothing -> ZMQ.bindRandomPort pull addr
+              Just i  -> do ZMQ.bind pull (addr ++ ":" ++ show i)
+                            return i
 
     chOut <- newTMChanIO
     lep   <- LocalEndPoint <$> pure (EndPointAddress $ B8.pack (addr ++ ":" ++ show port))
@@ -960,8 +973,23 @@ unsafeConfigurePush zmqt from to f = withMVar (transportState zmqt) $ \case
       ) (v ^. transportEndPointAt from)
     TransportClosed -> return ()
 
-apiNewMulticastGroup :: ZMQParameters -> TransportInternals -> LocalEndPoint -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
-apiNewMulticastGroup _params zmq lep = withMVar (transportState zmq) $ \case
+-- | Create a new multicast group associated with an EndPoint.
+--
+-- For multicast addresses zeromq uses two sockets. Is uses Pub-Sub sockets for multicast
+-- delivery and one Req-Rep socket for sending messages to the EndPoint. That
+-- endpoint will retransmit messages to all subscribers.
+--
+-- If Hints are used to specify ports then the address will have the form:
+--
+-- >  host:Port:ControlPort
+--
+-- where Port is 'hintsPort' and ControlPort is 'hintsControlPort'. If the hint port 
+-- is not specified then random ports will be used.
+apiNewMulticastGroup :: Hints                                   -- ^ Multicast group hints.
+                     -> TransportInternals                      -- ^ Internal transport state.
+                     -> LocalEndPoint                           -- ^ EndPoint that is associated with the multicast group.
+                     -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
+apiNewMulticastGroup hints zmq lep = withMVar (transportState zmq) $ \case
   TransportClosed -> return $ Left $ TransportError NewMulticastGroupFailed "Transport is closed."
   TransportValid vt -> modifyMVar (localEndPointState lep) $ \case
     LocalEndPointClosed -> return (LocalEndPointClosed, Left $ TransportError NewMulticastGroupFailed "Transport is closed.")
@@ -1007,9 +1035,15 @@ apiNewMulticastGroup _params zmq lep = withMVar (transportState zmq) $ \case
   where
     mkPublisher vt = do
       pub <- ZMQ.socket (vt^.transportContext) ZMQ.Pub
-      portPub <- ZMQ.bindRandomPort pub (B8.unpack $ transportAddress zmq)
+      portPub <- case hintsPort hints of
+                   Nothing -> ZMQ.bindRandomPort pub (B8.unpack $ transportAddress zmq)
+                   Just i  -> do ZMQ.bind pub (B8.unpack (transportAddress zmq) ++ ":" ++ show i)
+                                 return i
       rep <- ZMQ.socket (vt^.transportContext) ZMQ.Rep
-      portRep <- ZMQ.bindRandomPort rep (B8.unpack $ transportAddress zmq)
+      portRep <- case hintsControlPort hints of
+                   Nothing -> ZMQ.bindRandomPort rep (B8.unpack $ transportAddress zmq)
+                   Just i  -> do ZMQ.bind rep (B8.unpack (transportAddress zmq) ++ ":" ++ show i)
+                                 return i
       wrkThread <- Async.async $ forever $ do
         msg <- ZMQ.receiveMulti rep
         ZMQ.sendMulti pub $ "" :| msg
@@ -1180,3 +1214,21 @@ promoteZMQException = mapException DriverError
 -- errors that could not be handled in a normal way.
 errorLog :: Show a => a -> IO ()
 errorLog s = hPutStrLn stderr (printf "[network-transport-zeromq] Unhandled error: %s" $ show s)
+
+-- $zeromqs
+-- network-transport ZeroMQ has a big number of additional options that can be used for socket
+-- configuration and that are not exposed in network-transport abstraction layer. In order to
+-- to use specific options of network-transport-zeromq, the function 'apiNewEndPoint' was introduced.
+-- This function uses 'TransportInternals' and a notion of 'Hints' -- a special data type that contains
+-- the possible configuration options.
+--
+-- __Example: Bootstrapping problem.__
+--
+-- Due to the network-transport-zeromq design, a new endpoint is bound to a new socket address,
+-- making it impossible to bootstrap systems without an additional communication mechanism.
+-- This can be avoided if the new function is used to create an endpoint on a specified port:
+--
+-- > (intenals, transport) <- createTransportExposeInternals defaultZMQParameters "127.0.0.1"
+-- > ep <- apiNewEndpoint Hints{hintsPort=8888} internals
+--
+-- Allow to create a endpoint on a specified port and as a result bootstrap the system.

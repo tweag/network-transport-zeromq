@@ -20,6 +20,7 @@ main = defaultMain $
       , testCase "authentification" test_auth
       , testCase "connect to non existent host" test_nonexists
       , testCase "test cleanup actions" test_cleanup
+      , testCase "connect with prior knowledge" test_prior
       ]
 
 test_simple :: IO ()
@@ -121,3 +122,16 @@ test_cleanup = do
     closeTransport transport
     2 <- readIORef x
     return ()
+
+test_prior :: IO ()
+test_prior = do
+    (zmqa, _) <- createTransportExposeInternals defaultZMQParameters "127.0.0.1"
+    Right epa <- apiNewEndPoint defaultHints{hintsPort=Just 8888} zmqa
+
+    (_, transportb) <-
+          createTransportExposeInternals defaultZMQParameters "127.0.0.1"
+    Right epb <- newEndPoint transportb
+    Right _   <- connect epb (EndPointAddress "tcp://127.0.0.1:8888") ReliableOrdered defaultConnectHints
+    (ConnectionOpened 1 ReliableOrdered _) <- receive epa
+    return ()
+   
