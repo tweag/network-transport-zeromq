@@ -297,7 +297,7 @@ createTransportExposeInternals params host = do
         <*> (newMVar =<< mkTransportState ctx mtid)
 	<*> pure params
     return $ (transport, Transport
-      { newEndPoint    = apiNewEndPoint defaultHints params transport
+      { newEndPoint    = apiNewEndPoint defaultHints transport
       , closeTransport = apiTransportClose transport
       })
   where
@@ -318,14 +318,15 @@ apiTransportClose transport = mask_ $ do
           ZMQ.term (v ^. transportContext)
 
 apiNewEndPoint :: Hints
-               -> ZMQParameters
                -> TransportInternals
                -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
-apiNewEndPoint hints params transport = try $ mapZMQException (TransportError NewEndPointFailed . show) $
+apiNewEndPoint hints transport = try $ mapZMQException (TransportError NewEndPointFailed . show) $
    modifyMVar (transportState transport) $ \case
        TransportClosed  -> throwM $ TransportError NewEndPointFailed "Transport is closed."
        TransportValid i -> do
-         (ep, chan) <- endPointCreate hints params (i ^. transportContext) (B8.unpack addr)
+         (ep, chan) <- endPointCreate hints (transportParameters transport)
+                                            (i ^. transportContext)
+                                            (B8.unpack addr)
          return $
            ( TransportValid
            . (transportEndPoints ^: (Map.insert (localEndPointAddress ep) ep))
@@ -337,9 +338,9 @@ apiNewEndPoint hints params transport = try $ mapZMQException (TransportError Ne
                      Nothing -> error "channel is closed"
                      Just x  -> return x
                , address = localEndPointAddress ep
-               , connect = apiConnect params (i ^. transportContext) ep
+               , connect = apiConnect (transportParameters transport) (i ^. transportContext) ep
                , closeEndPoint = apiCloseEndPoint transport ep
-               , newMulticastGroup = apiNewMulticastGroup params transport ep
+               , newMulticastGroup = apiNewMulticastGroup (transportParameters transport) transport ep
                , resolveMulticastGroup = apiResolveMulticastGroup transport ep
                }
            )
