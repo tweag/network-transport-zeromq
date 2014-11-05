@@ -293,10 +293,10 @@ createTransportExposeInternals params host = do
             fmap (\(SecurityPlain user pass) -> ZMQ.authManager ctx user pass) $
                  zmqSecurityMechanism params
     transport <- TransportInternals
-    	<$> pure addr
+        <$> pure addr
         <*> (newMVar =<< mkTransportState ctx mtid)
     return $ (transport, Transport
-      { newEndPoint    = apiNewEndPoint params transport
+      { newEndPoint    = apiNewEndPoint defaultHints params transport
       , closeTransport = apiTransportClose transport
       })
   where
@@ -316,14 +316,15 @@ apiTransportClose transport = mask_ $ do
           Foldable.sequence_ =<< atomicModifyIORef' (v ^. transportSockets) (\x -> (IntMap.empty, x))
           ZMQ.term (v ^. transportContext)
 
-apiNewEndPoint :: ZMQParameters
+apiNewEndPoint :: Hints
+               -> ZMQParameters
                -> TransportInternals
                -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
-apiNewEndPoint params transport = try $ mapZMQException (TransportError NewEndPointFailed . show) $
+apiNewEndPoint hints params transport = try $ mapZMQException (TransportError NewEndPointFailed . show) $
    modifyMVar (transportState transport) $ \case
        TransportClosed  -> throwM $ TransportError NewEndPointFailed "Transport is closed."
        TransportValid i -> do
-         (ep, chan) <- endPointCreate params (i ^. transportContext) (B8.unpack addr)
+         (ep, chan) <- endPointCreate hints params (i ^. transportContext) (B8.unpack addr)
          return $
            ( TransportValid
            . (transportEndPoints ^: (Map.insert (localEndPointAddress ep) ep))
@@ -369,18 +370,22 @@ apiCloseEndPoint transport lep = mask_ $ either errorLog return <=< tryZMQ $ do
         . (transportEndPoints ^: (Map.delete (localEndPointAddress lep)))
         $ v
 
-endPointCreate :: ZMQParameters
+endPointCreate :: Hints
+               -> ZMQParameters
                -> Context
                -> String
                -> IO (LocalEndPoint, TMChan Event)
-endPointCreate params ctx addr = promoteZMQException $ do
+endPointCreate hints params ctx addr = promoteZMQException $ do
     pull <- ZMQ.socket ctx ZMQ.Pull
     case zmqSecurityMechanism params of
           Nothing -> return ()
           Just SecurityPlain{} -> do
               ZMQ.setPlainServer True pull
     ZMQ.setSendHighWM (ZMQ.restrict (zmqHighWaterMark params)) pull
-    port <- ZMQ.bindRandomPort pull addr
+    port <- case hintPort hints of
+              Nothing -> ZMQ.bindRandomPort pull addr
+              Just i  -> do ZMQ.bind pull (addr ++ ":" ++ show i)
+                            return i
 
     chOut <- newTMChanIO
     lep   <- LocalEndPoint <$> pure (EndPointAddress $ B8.pack (addr ++ ":" ++ show port))

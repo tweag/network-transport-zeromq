@@ -41,6 +41,9 @@ module Network.Transport.ZMQ.Internal.Types
   , ZMQMulticastGroup(..)
   , MulticastGroupState(..)
   , ValidMulticastGroup(..)
+    -- * ZeroMQ specific types
+  , Hints(..)
+  , defaultHints
     -- * Internal data structures
   , Counter(..)
   , counterNextId
@@ -208,6 +211,13 @@ data Counter a b = Counter
   { _counterNext   :: !a
   , _counterValue  :: !(Map a b)
   }
+
+-- | A list of Hints provided for connection
+data Hints = Hints
+  { hintPort :: Maybe Int }
+
+defaultHints :: Hints
+defaultHints = Hints Nothing
 
 nextElement :: (Enum a, Ord a)
             => (b -> IO Bool)
