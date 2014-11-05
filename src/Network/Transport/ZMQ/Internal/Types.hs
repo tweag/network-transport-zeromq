@@ -109,6 +109,8 @@ data TransportInternals = TransportInternals
   -- ^ Transport address (used as identifier).
   , transportState  :: !(MVar TransportState)
   -- ^ Internal state.
+  , transportParameters :: !ZMQParameters
+  -- ^ Parameters that were used to create transport
   }
 
 -- | Transport state.
