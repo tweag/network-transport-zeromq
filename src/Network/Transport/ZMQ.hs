@@ -345,7 +345,7 @@ apiNewEndPoint hints transport = try $ mapZMQException (TransportError NewEndPoi
                , address = localEndPointAddress ep
                , connect = apiConnect (transportParameters transport) (i ^. transportContext) ep
                , closeEndPoint = apiCloseEndPoint transport ep
-               , newMulticastGroup = apiNewMulticastGroup (transportParameters transport) transport ep
+               , newMulticastGroup = apiNewMulticastGroup transport ep
                , resolveMulticastGroup = apiResolveMulticastGroup transport ep
                }
            )
@@ -972,8 +972,8 @@ unsafeConfigurePush zmqt from to f = withMVar (transportState zmqt) $ \case
       ) (v ^. transportEndPointAt from)
     TransportClosed -> return ()
 
-apiNewMulticastGroup :: ZMQParameters -> TransportInternals -> LocalEndPoint -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
-apiNewMulticastGroup _params zmq lep = withMVar (transportState zmq) $ \case
+apiNewMulticastGroup :: TransportInternals -> LocalEndPoint -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
+apiNewMulticastGroup zmq lep = withMVar (transportState zmq) $ \case
   TransportClosed -> return $ Left $ TransportError NewMulticastGroupFailed "Transport is closed."
   TransportValid vt -> modifyMVar (localEndPointState lep) $ \case
     LocalEndPointClosed -> return (LocalEndPointClosed, Left $ TransportError NewMulticastGroupFailed "Transport is closed.")
