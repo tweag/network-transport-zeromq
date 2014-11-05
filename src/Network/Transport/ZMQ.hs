@@ -295,6 +295,7 @@ createTransportExposeInternals params host = do
     transport <- TransportInternals
         <$> pure addr
         <*> (newMVar =<< mkTransportState ctx mtid)
+	<*> pure params
     return $ (transport, Transport
       { newEndPoint    = apiNewEndPoint defaultHints params transport
       , closeTransport = apiTransportClose transport
