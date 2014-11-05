@@ -20,6 +20,10 @@ module Network.Transport.ZMQ
   , ZMQParameters(..)
   , SecurityMechanism(..)
   , defaultZMQParameters
+  -- * ZeroMQ specific functionality
+  -- $zeromqs
+  , Hints(..)
+  , apiNewEndPoint
   -- * Internals
   -- $internals
   , createTransportExposeInternals
@@ -317,8 +321,9 @@ apiTransportClose transport = mask_ $ do
           Foldable.sequence_ =<< atomicModifyIORef' (v ^. transportSockets) (\x -> (IntMap.empty, x))
           ZMQ.term (v ^. transportContext)
 
-apiNewEndPoint :: Hints
-               -> TransportInternals
+-- | Creates a new end point on the transport specified and applies all hints.
+apiNewEndPoint :: Hints                       -- ^ Hints to apply
+               -> TransportInternals          -- ^ Internal transport state
                -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
 apiNewEndPoint hints transport = try $ mapZMQException (TransportError NewEndPointFailed . show) $
    modifyMVar (transportState transport) $ \case
@@ -1187,3 +1192,21 @@ promoteZMQException = mapException DriverError
 -- errors that could not be handled in a normal way.
 errorLog :: Show a => a -> IO ()
 errorLog s = hPutStrLn stderr (printf "[network-transport-zeromq] Unhandled error: %s" $ show s)
+
+-- $zeromqs
+-- network-transport ZeroMQ have a big number of additional options that can be used for socket
+-- configuration that are not exposed in network-transport abstraction layer. In order to be
+-- able to use specific options of network-transport-zeromq a specific API is introduced.
+-- That API uses 'TransportInternals' and a notion of 'Hints' -- special data type that contains
+-- possible configuartion options.
+--
+-- __Example: Bootstrapping problem.__
+--
+-- Due to network-transport-zeromq design new endpoint is bound to a new
+-- socket address making it impossible to bootstrap systems without additional communication 
+-- mechanism. Using
+--
+-- > (intenals, transport) <- createTransportExposeInternals defaultZMQParameters "127.0.0.1"
+-- > ep <- apiNewEndpoint Hints{hintPort=8888} internals
+--
+-- Allow to create a endpoint on a specified port and as a result bootstrap the system.
