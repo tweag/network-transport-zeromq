@@ -3,20 +3,17 @@ ghc:
   - 7.6
   - 7.8
 
-env:
-  - CONSTRAINT=--constraint=network-transport==0.4.0.0
-
 before_install:
-    - sudo add-apt-repository ppa:chris-lea/zeromq -y
-    - sudo apt-get update
-    - sudo apt-get install libzmq3 libzmq3-dev git
-    - cabal update
-    - cabal install cabal-install
-    - export PATH=~/.cabal/bin:$PATH
+  - sudo add-apt-repository ppa:chris-lea/zeromq -y
+  - sudo apt-get update
+  - sudo apt-get install libzmq3 libzmq3-dev git
+  - cabal update
 
 install:
-    - cabal sandbox init
-    - cabal install --dependencies-only --enable-tests --enable-benchmarks --allow-newer=mtl,ansi-terminal,network-transport,base $CONSTRAINT
+  - cabal install --only-dependencies --enable-tests --enable-benchmarks
 
 script:
-    - cabal configure --enable-tests --enable-benchmarks $CONSTRAINT && cabal build && cabal test && cabal bench
+  - cabal configure --enable-tests --enable-benchmarks
+  - cabal build
+  - cabal test
+  - cabal bench
