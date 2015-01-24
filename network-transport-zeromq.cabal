@@ -66,7 +66,7 @@ Test-Suite test-zeromq
   type:               exitcode-stdio-1.0
   main-is:            TestZMQ.hs
   build-depends:      base >= 4.4 && < 5,
-                      network-transport >= 0.3,
+                      network-transport >= 0.4,
                       network-transport-zeromq,
                       zeromq4-haskell >= 0.2,
                       network-transport-tests >= 0.1.0.1
@@ -78,7 +78,7 @@ Test-Suite test-api
   type:               exitcode-stdio-1.0
   main-is:            TestAPI.hs
   build-depends:      base >= 4.4 && < 5,
-                      network-transport >= 0.3,
+                      network-transport >= 0.4,
                       network-transport-zeromq,
                       zeromq4-haskell >= 0.2,
                       tasty >= 0.6,
@@ -164,7 +164,7 @@ benchmark bench-channels-local
                      bytestring,
                      binary,
                      distributed-process,
-                     criterion
+                     criterion >= 1.0
   hs-source-dirs:    benchmarks
   ghc-options:       -O2 -Wall -threaded
   default-language:  Haskell2010
@@ -177,7 +177,7 @@ benchmark bench-latency-local
                      bytestring,
                      binary,
                      distributed-process,
-                     criterion
+                     criterion >= 1.0
   hs-source-dirs:    benchmarks
   ghc-options:       -O2 -Wall -threaded
   default-language:  Haskell2010
@@ -190,7 +190,7 @@ benchmark bench-throughput-local
                      bytestring,
                      binary,
                      distributed-process,
-                     criterion
+                     criterion >= 1.0
   hs-source-dirs:    benchmarks
   ghc-options:       -O2 -Wall -threaded
   default-language:  Haskell2010
@@ -209,6 +209,7 @@ executable bench-dp-latency
                      network-transport-zeromq,
                      bytestring,
                      binary,
+                     criterion >= 1.0,
                      distributed-process
     buildable:       True
   else
@@ -221,6 +222,7 @@ executable bench-dp-throughput
                      distributed-process,
                      network-transport-zeromq,
                      bytestring >= 0.9 && < 0.11,
+                     criterion >= 1.0,
                      binary >= 0.5 && < 0.8
     buildable:       True
   else
@@ -237,6 +239,7 @@ executable bench-dp-channels
                        distributed-process,
                        network-transport-zeromq,
                        bytestring >= 0.9 && < 0.11,
+                       criterion >= 1.0,
                        binary >= 0.5 && < 0.8
       buildable:       True
     else
