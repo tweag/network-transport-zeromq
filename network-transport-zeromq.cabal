@@ -24,11 +24,13 @@ Source-repository head
   Location: https://github.com/tweag/network-transport-zeromq
 
 flag install-benchmarks
-  description: Install benchmarks executables (default benchmarks can be triggered during build using \-\-enable-benchmarks option).
+  description:
+    Build and install extra benchmarks executables (default benchmarks
+    will be built, but not installed, using \-\-enable-benchmarks).
   default:     False
 
 flag distributed-process-tests
-  description: build test suites that require distributed-process to be installed
+  description: Build test suites that require distributed-process to be installed.
   default:     False
 
 flag unsafe
