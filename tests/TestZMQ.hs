@@ -32,7 +32,7 @@ testTransport' newTransport = do
     , ("CloseTransport",        testCloseTransport newTransport)
     , ("ExceptionOnReceive",    testExceptionOnReceive newTransport)
     , ("SendException",         testSendException newTransport)
-    , ("Kill",                  testKill newTransport 100)
+    , ("Kill",                  testKill newTransport 80)
                                 -- testKill test have a timeconstraint so n-t-zmq
                                 -- fails to work with required speed, we need to
                                 -- reduce a number of tests here

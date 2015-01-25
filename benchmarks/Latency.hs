@@ -7,7 +7,8 @@ import Control.Concurrent (forkOS, threadDelay)
 import Control.Concurrent.MVar
 import Control.Distributed.Process
 import Control.Distributed.Process.Node
-import Criterion.Measurement
+import Criterion.Types
+import Criterion.Measurement as M
 import Data.Binary (encode, decode)
 import Data.ByteString.Char8 (pack)
 import qualified Data.ByteString.Lazy as BSL
@@ -63,7 +64,7 @@ defaultBenchmark = do
     forM_ [100,200,600,800,1000,2000,5000,8000,10000] $ \i -> do
         transport <- createTransport defaultZMQParameters "127.0.0.1"
         node <- newLocalNode transport initRemoteTable
-        d <- time_ (runProcess node $ initialClient i)
+        d <- snd <$> M.measure (nfIO $ runProcess node $ initialClient i) 1
         printf "%-8i %10.4f\n" i d
     putMVar e ()
   takeMVar e
