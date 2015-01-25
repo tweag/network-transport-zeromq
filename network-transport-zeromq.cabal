@@ -3,9 +3,13 @@ version:             0.2.1
 synopsis:            ZeroMQ backend for network-transport
 description:
   Implementation of the
-  <http://hackage.haskell.org/package/network-transport network-transport>
-  API over ZeroMQ. This provides access to the wealth of transports implemented in ZeroMQ, such as in-process, inter-process, TCP, TPIC and multicast. Furthermore, this makes it possible to encrypt and authenticate clients using ZeroMQ's security mechanisms, and increase throughput using ZeroMQ's intelligent message batching.
-  .
+  <http://hackage.haskell.org/package/network-transport
+  network-transport> API over ZeroMQ. This provides access to the
+  wealth of transports implemented in ZeroMQ, such as in-process,
+  inter-process, TCP, TPIC and multicast. Furthermore, this makes it
+  possible to encrypt and authenticate clients using ZeroMQ's security
+  mechanisms, and increase throughput using ZeroMQ's intelligent
+  message batching.
 license:             BSD3
 license-file:        LICENSE
 copyright:           (c) 2014, EURL Tweag
@@ -88,112 +92,106 @@ Test-Suite test-api
   default-language:   Haskell2010
 
 Test-Suite test-ch-core
-  Type:              exitcode-stdio-1.0
-  Main-Is:           test-ch.hs
-  CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.CH
-  default-extensions:        CPP
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  HS-Source-Dirs:    tests
-  default-language:  Haskell2010
-  if flag(distributed-process-tests)
-    Build-Depends:   base >= 4.4 && < 5,
-                     network-transport-zeromq,
-                     distributed-process-tests >= 0.4,
-                     network >= 2.3 && < 2.5,
-                     network-transport >= 0.3,
-                     test-framework >= 0.6 && < 0.9,
-                     containers,
-                     stm,
-                     stm-chans,
-                     bytestring
-    Buildable:       True
-  else
-    Buildable:       False
+  Type:               exitcode-stdio-1.0
+  Main-Is:            test-ch.hs
+  CPP-Options:        -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.CH
+  default-extensions:         CPP
+  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  HS-Source-Dirs:     tests
+  default-language:   Haskell2010
+  Build-Depends:      base >= 4.4 && < 5,
+                      network-transport-zeromq,
+                      distributed-process-tests >= 0.4,
+                      network >= 2.3 && < 2.5,
+                      network-transport >= 0.3,
+                      test-framework >= 0.6 && < 0.9,
+                      containers,
+                      stm,
+                      stm-chans,
+                      bytestring
+  if !flag(distributed-process-tests)
+    Buildable: False
 
 Test-Suite test-ch-closure
-  Type:              exitcode-stdio-1.0
-  Main-Is:           test-ch.hs
-  CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Closure
-  default-extensions:        CPP
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -caf-all -auto-all
-  HS-Source-Dirs:    tests
-  default-language:  Haskell2010
-  if flag(distributed-process-tests)
-    Build-Depends:   base >= 4.4 && < 5,
-                     network-transport-zeromq,
-                     distributed-process-tests >= 0.4,
-                     network >= 2.3 && < 2.5,
-                     network-transport >= 0.3,
-                     test-framework >= 0.6 && < 0.9,
-                     containers,
-                     stm,
-                     stm-chans,
-                     bytestring
-    Buildable:       True
-  else
-    Buildable:       False
+  Type:               exitcode-stdio-1.0
+  Main-Is:            test-ch.hs
+  CPP-Options:        -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Closure
+  default-extensions: CPP
+  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind -caf-all -auto-all
+  HS-Source-Dirs:     tests
+  default-language:   Haskell2010
+  Build-Depends:      base >= 4.4 && < 5,
+                      network-transport-zeromq,
+                      distributed-process-tests >= 0.4,
+                      network >= 2.3 && < 2.5,
+                      network-transport >= 0.3,
+                      test-framework >= 0.6 && < 0.9,
+                      containers,
+                      stm,
+                      stm-chans,
+                      bytestring
+  if !flag(distributed-process-tests)
+    Buildable: False
 
 Test-Suite test-ch-stat
-  Type:              exitcode-stdio-1.0
-  Main-Is:           test-ch.hs
-  CPP-Options:       -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Stats
-  default-extensions:        CPP
-  ghc-options:       -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
-  HS-Source-Dirs:    tests
-  default-language:  Haskell2010
-  if flag(distributed-process-tests)
-    Build-Depends:   base >= 4.4 && < 5,
-                     network-transport-zeromq,
-                     distributed-process-tests >= 0.4,
-                     network >= 2.3 && < 2.5,
-                     network-transport >= 0.3,
-                     test-framework >= 0.6 && < 0.9,
-                     containers,
-                     stm,
-                     stm-chans,
-                     bytestring
-    Buildable:       True
-  else
-    Buildable:       False
+  Type:               exitcode-stdio-1.0
+  Main-Is:            test-ch.hs
+  CPP-Options:        -DTEST_SUITE_MODULE=Control.Distributed.Process.Tests.Stats
+  default-extensions: CPP
+  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N -fno-warn-unused-do-bind
+  HS-Source-Dirs:     tests
+  default-language:   Haskell2010
+  Build-Depends:      base >= 4.4 && < 5,
+                      network-transport-zeromq,
+                      distributed-process-tests >= 0.4,
+                      network >= 2.3 && < 2.5,
+                      network-transport >= 0.3,
+                      test-framework >= 0.6 && < 0.9,
+                      containers,
+                      stm,
+                      stm-chans,
+                      bytestring
+  if !flag(distributed-process-tests)
+    Buildable: False
 
 benchmark bench-channels-local
-  type:              exitcode-stdio-1.0
-  main-is:           Channels.hs
-  build-depends:     base >= 4.4 && < 5,
-                     network-transport-zeromq,
-                     bytestring,
-                     binary,
-                     distributed-process,
-                     criterion >= 1.0
-  hs-source-dirs:    benchmarks
-  ghc-options:       -O2 -Wall -threaded
-  default-language:  Haskell2010
+  type:               exitcode-stdio-1.0
+  main-is:            Channels.hs
+  build-depends:      base >= 4.4 && < 5,
+                      network-transport-zeromq,
+                      bytestring,
+                      binary,
+                      distributed-process,
+                      criterion >= 1.0
+  hs-source-dirs:     benchmarks
+  ghc-options:        -O2 -Wall -threaded
+  default-language:   Haskell2010
 
 benchmark bench-latency-local
-  type:              exitcode-stdio-1.0
-  main-is:           Latency.hs
-  build-depends:     base >= 4.4 && < 5,
-                     network-transport-zeromq,
-                     bytestring,
-                     binary,
-                     distributed-process,
-                     criterion >= 1.0
-  hs-source-dirs:    benchmarks
-  ghc-options:       -O2 -Wall -threaded
-  default-language:  Haskell2010
+  type:               exitcode-stdio-1.0
+  main-is:            Latency.hs
+  build-depends:      base >= 4.4 && < 5,
+                      network-transport-zeromq,
+                      bytestring,
+                      binary,
+                      distributed-process,
+                      criterion >= 1.0
+  hs-source-dirs:     benchmarks
+  ghc-options:        -O2 -Wall -threaded
+  default-language:   Haskell2010
 
 benchmark bench-throughput-local
-  type:              exitcode-stdio-1.0
-  main-is:           Throughput.hs
-  build-depends:     base >= 4.4 && < 5,
-                     network-transport-zeromq,
-                     bytestring,
-                     binary,
-                     distributed-process,
-                     criterion >= 1.0
-  hs-source-dirs:    benchmarks
-  ghc-options:       -O2 -Wall -threaded
-  default-language:  Haskell2010
+  type:               exitcode-stdio-1.0
+  main-is:            Throughput.hs
+  build-depends:      base >= 4.4 && < 5,
+                      network-transport-zeromq,
+                      bytestring,
+                      binary,
+                      distributed-process,
+                      criterion >= 1.0
+  hs-source-dirs:     benchmarks
+  ghc-options:        -O2 -Wall -threaded
+  default-language:   Haskell2010
   default-extensions: BangPatterns
 
 -- Installable benchmark executables, so as to allow passing arguments
@@ -201,51 +199,45 @@ benchmark bench-throughput-local
 -- benchmarks over several hosts.
 
 executable bench-dp-latency
-  ghc-options:       -O2 -Wall
-  main-is: Latency.hs
-  hs-source-dirs:    benchmarks
-  if flag(install-benchmarks)
-    build-depends:   base >= 4.4 && < 5,
-                     network-transport-zeromq,
-                     bytestring,
-                     binary,
-                     criterion >= 1.0,
-                     distributed-process
-    buildable:       True
-  else
-    buildable:       False
-  default-language:  Haskell2010
+  main-is:            Latency.hs
+  hs-source-dirs:     benchmarks
+  build-depends:      base >= 4.4 && < 5,
+                      network-transport-zeromq,
+                      bytestring,
+                      binary,
+                      criterion >= 1.0,
+                      distributed-process
+  default-language:   Haskell2010
+  ghc-options:        -O2 -Wall
+  if !flag(install-benchmarks)
+    buildable: False
 
 executable bench-dp-throughput
-  if flag(install-benchmarks)
-    Build-Depends:   base >= 4.4 && < 5,
-                     distributed-process,
-                     network-transport-zeromq,
-                     bytestring >= 0.9 && < 0.11,
-                     criterion >= 1.0,
-                     binary >= 0.5 && < 0.8
-    buildable:       True
-  else
+  main-is:            Throughput.hs
+  hs-source-dirs:     benchmarks
+  build-depends:      base >= 4.4 && < 5,
+                      distributed-process,
+                      network-transport-zeromq,
+                      bytestring >= 0.9 && < 0.11,
+                      criterion >= 1.0,
+                      binary >= 0.5 && < 0.8
+  default-language:   Haskell2010
+  default-extensions: BangPatterns
+  ghc-options:        -Wall
+  if !flag(install-benchmarks)
     buildable: False
-  main-is:           Throughput.hs
-  hs-source-dirs:    benchmarks
-  ghc-options:       -Wall
-  default-extensions:        BangPatterns
-  default-language:  Haskell2010
 
 executable bench-dp-channels
-    if flag(install-benchmarks)
-      Build-Depends:   base >= 4.4 && < 5,
-                       distributed-process,
-                       network-transport-zeromq,
-                       bytestring >= 0.9 && < 0.11,
-                       criterion >= 1.0,
-                       binary >= 0.5 && < 0.8
-      buildable:       True
-    else
-      buildable: False
-    main-is:           Channels.hs
-    hs-source-dirs:    benchmarks
-    ghc-options:       -Wall -O2 -Wall -threaded
-    default-extensions: BangPatterns
-    default-language:   Haskell2010
+  main-is:            Channels.hs
+  hs-source-dirs:     benchmarks
+  build-depends:      base >= 4.4 && < 5,
+                      distributed-process,
+                      network-transport-zeromq,
+                      bytestring >= 0.9 && < 0.11,
+                      criterion >= 1.0,
+                      binary >= 0.5 && < 0.8
+  default-language:   Haskell2010
+  default-extensions: BangPatterns
+  ghc-options:        -Wall -O2 -Wall -threaded
+  if !flag(install-benchmarks)
+    buildable: False
