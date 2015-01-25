@@ -10,10 +10,10 @@ before_install:
   - cabal update
 
 install:
-  - cabal install --only-dependencies --enable-tests --enable-benchmarks
+  - cabal install --reorder-goals --only-dependencies --enable-tests --enable-benchmarks
 
 script:
-  - cabal configure --enable-tests --enable-benchmarks
+  - cabal configure --reorder-goals --enable-tests --enable-benchmarks
   - cabal build
   - cabal test
   - cabal bench
