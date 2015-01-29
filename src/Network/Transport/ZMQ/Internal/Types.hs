@@ -216,8 +216,8 @@ data Counter a b = Counter
 
 -- | A list of Hints provided for connection
 data Hints = Hints
-  { hintsPort :: Maybe Int                   -- ^ Specify port to bing
-  , hintsControlPort :: Maybe Int            -- ^ Specify port that is used to receive multicast messages
+  { hintsPort :: Maybe Int                   -- ^ The port to bind.
+  , hintsControlPort :: Maybe Int            -- ^ The port that is used to receive multicast messages.
   }
 
 defaultHints :: Hints

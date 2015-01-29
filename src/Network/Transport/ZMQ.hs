@@ -973,21 +973,21 @@ unsafeConfigurePush zmqt from to f = withMVar (transportState zmqt) $ \case
       ) (v ^. transportEndPointAt from)
     TransportClosed -> return ()
 
--- | Create a new multicast group associated with EndPoint.
+-- | Create a new multicast group associated with an EndPoint.
 --
--- For multicast addresses zeromq uses 2 sockets one: Pub-Sub sockets for multicast
--- delivery and one Req-Rep socket for sending messages to the EndPoint, and that
+-- For multicast addresses zeromq uses two sockets. Is uses Pub-Sub sockets for multicast
+-- delivery and one Req-Rep socket for sending messages to the EndPoint. That
 -- endpoint will retransmit messages to all subscribers.
 --
 -- If Hints are used to specify ports then the address will have the form:
 --
 -- >  host:Port:ControlPort
 --
--- where Port is 'hintsPort' and ControlPort is 'hintsControlPort'. If hint port 
+-- where Port is 'hintsPort' and ControlPort is 'hintsControlPort'. If the hint port 
 -- is not specified then random ports will be used.
-apiNewMulticastGroup :: Hints                                   -- ^ Multicast group hints
-                     -> TransportInternals                      -- ^ Internal transport state
-                     -> LocalEndPoint                           -- ^ EndPoint that is associated with multicast group
+apiNewMulticastGroup :: Hints                                   -- ^ Multicast group hints.
+                     -> TransportInternals                      -- ^ Internal transport state.
+                     -> LocalEndPoint                           -- ^ EndPoint that is associated with the multicast group.
                      -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
 apiNewMulticastGroup hints zmq lep = withMVar (transportState zmq) $ \case
   TransportClosed -> return $ Left $ TransportError NewMulticastGroupFailed "Transport is closed."
