@@ -390,7 +390,7 @@ endPointCreate hints params ctx addr = promoteZMQException $ do
           Just SecurityPlain{} -> do
               ZMQ.setPlainServer True pull
     ZMQ.setSendHighWM (ZMQ.restrict (zmqHighWaterMark params)) pull
-    port <- case hintPort hints of
+    port <- case hintsPort hints of
               Nothing -> ZMQ.bindRandomPort pull addr
               Just i  -> do ZMQ.bind pull (addr ++ ":" ++ show i)
                             return i
@@ -1035,12 +1035,12 @@ apiNewMulticastGroup hints zmq lep = withMVar (transportState zmq) $ \case
   where
     mkPublisher vt = do
       pub <- ZMQ.socket (vt^.transportContext) ZMQ.Pub
-      portPub <- case hintPort hints of
+      portPub <- case hintsPort hints of
                    Nothing -> ZMQ.bindRandomPort pub (B8.unpack $ transportAddress zmq)
                    Just i  -> do ZMQ.bind pub (B8.unpack (transportAddress zmq) ++ ":" ++ show i)
                                  return i
       rep <- ZMQ.socket (vt^.transportContext) ZMQ.Rep
-      portRep <- case hintControlPort hints of
+      portRep <- case hintsControlPort hints of
                    Nothing -> ZMQ.bindRandomPort rep (B8.unpack $ transportAddress zmq)
                    Just i  -> do ZMQ.bind rep (B8.unpack (transportAddress zmq) ++ ":" ++ show i)
                                  return i
