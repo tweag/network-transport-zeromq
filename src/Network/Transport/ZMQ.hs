@@ -322,9 +322,9 @@ apiTransportClose transport = mask_ $ do
           Foldable.sequence_ =<< atomicModifyIORef' (v ^. transportSockets) (\x -> (IntMap.empty, x))
           ZMQ.term (v ^. transportContext)
 
--- | Creates a new end point on the transport specified and applies all hints.
-apiNewEndPoint :: Hints                       -- ^ Hints to apply
-               -> TransportInternals          -- ^ Internal transport state
+-- | Creates a new endpoint on the transport specified and applies all hints.
+apiNewEndPoint :: Hints                       -- ^ Hints to apply.
+               -> TransportInternals          -- ^ Internal transport state.
                -> IO (Either (TransportError NewEndPointErrorCode) EndPoint)
 apiNewEndPoint hints transport = try $ mapZMQException (TransportError NewEndPointFailed . show) $
    modifyMVar (transportState transport) $ \case
@@ -1216,17 +1216,17 @@ errorLog :: Show a => a -> IO ()
 errorLog s = hPutStrLn stderr (printf "[network-transport-zeromq] Unhandled error: %s" $ show s)
 
 -- $zeromqs
--- network-transport ZeroMQ have a big number of additional options that can be used for socket
--- configuration that are not exposed in network-transport abstraction layer. In order to be
--- able to use specific options of network-transport-zeromq a specific API is introduced.
--- That API uses 'TransportInternals' and a notion of 'Hints' -- special data type that contains
--- possible configuartion options.
+-- network-transport ZeroMQ has a big number of additional options that can be used for socket
+-- configuration and that are not exposed in network-transport abstraction layer. In order to
+-- to use specific options of network-transport-zeromq, the function 'apiNewEndPoint' was introduced.
+-- This function uses 'TransportInternals' and a notion of 'Hints' -- a special data type that contains
+-- the possible configuration options.
 --
 -- __Example: Bootstrapping problem.__
 --
--- Due to network-transport-zeromq design new endpoint is bound to a new
--- socket address making it impossible to bootstrap systems without additional communication 
--- mechanism. Using
+-- Due to the network-transport-zeromq design, a new endpoint is bound to a new socket address,
+-- making it impossible to bootstrap systems without an additional communication mechanism.
+-- This can be avoided if the new function is used to create an endpoint on a specified port:
 --
 -- > (intenals, transport) <- createTransportExposeInternals defaultZMQParameters "127.0.0.1"
 -- > ep <- apiNewEndpoint Hints{hintPort=8888} internals
