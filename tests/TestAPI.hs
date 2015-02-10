@@ -134,11 +134,11 @@ test_cleanup addr = do
 
 test_prior :: IO ()
 test_prior = do
-    (zmqa, _) <- createTransportExposeInternals defaultZMQParameters "127.0.0.1"
+    (zmqa, _) <- createTransportExposeInternals defaultZMQParameters (TCP "127.0.0.1")
     Right epa <- apiNewEndPoint defaultHints{hintsPort=Just 8888} zmqa
 
     (_, transportb) <-
-          createTransportExposeInternals defaultZMQParameters "127.0.0.1"
+          createTransportExposeInternals defaultZMQParameters (TCP "127.0.0.1")
     Right epb <- newEndPoint transportb
     Right _   <- connect epb (EndPointAddress "tcp://127.0.0.1:8888") ReliableOrdered defaultConnectHints
     (ConnectionOpened 1 ReliableOrdered _) <- receive epa
