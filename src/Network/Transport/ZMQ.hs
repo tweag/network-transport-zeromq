@@ -123,6 +123,7 @@ import qualified System.ZMQ4 as ZMQ
 import Data.Accessor ((^.), (^=), (^:) ) 
 
 import           Text.Printf
+import           Debug.Trace
 
 --------------------------------------------------------------------------------
 --- Internal datatypes                                                        --
@@ -427,7 +428,7 @@ endPointCreate hints params ctx addr = promoteZMQException $ do
              -> LocalEndPoint
              -> TMChan Event
 	     -> IO ()
-    receiver pull ourEp chan = forever $ do
+    receiver pull ourEp chan = forever $ mask_ $ do
       (cmd:msgs) <- ZMQ.receiveMulti pull
       case decode' cmd of
         MessageData idx -> atomically $ writeTMChan chan (Received idx msgs)
@@ -615,10 +616,11 @@ apiSend (ZMQConnection l e _ s _) b = do
        writeTMChan (localEndPointChan v) $ ErrorEvent $ TransportError
                    (EventConnectionLost (remoteEndPointAddress e)) "Exception on send."
 
+
 -- 'apiClose' function is asynchronous, as connection may not exists by the
 -- time of the calling to this function. In this case function just marks
 -- connection as closed, so all subsequent calls from the user side will
--- "think" that the connection is closed, and remote side will be contified
+-- "think" that the connection is closed.
 -- only after connection will be up.
 apiClose :: ZMQConnection -> IO ()
 apiClose (ZMQConnection _ e _ s _) = either errorLog return <=< tryZMQ $ uninterruptibleMask_ $ join $ do
