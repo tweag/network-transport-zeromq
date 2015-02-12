@@ -13,6 +13,7 @@
 -- This module is intended to be imported qualified.
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Network.Transport.ZMQ
   ( -- * Main API
@@ -338,6 +339,7 @@ apiNewEndPoint hints transport = try $ mapZMQException (TransportError NewEndPoi
          (ep, chan) <- endPointCreate hints (transportParameters transport)
                                             (i ^. transportContext)
                                             (B8.unpack addr)
+         let !cntx = i ^. transportContext
          return $
            ( TransportValid
            . (transportEndPoints ^: (Map.insert (localEndPointAddress ep) ep))
@@ -349,7 +351,7 @@ apiNewEndPoint hints transport = try $ mapZMQException (TransportError NewEndPoi
                      Nothing -> error "channel is closed"
                      Just x  -> return x
                , address = localEndPointAddress ep
-               , connect = apiConnect (transportParameters transport) (i ^. transportContext) ep
+               , connect = apiConnect (transportParameters transport) cntx ep
                , closeEndPoint = apiCloseEndPoint transport ep
                , newMulticastGroup = apiNewMulticastGroup defaultHints transport ep
                , resolveMulticastGroup = apiResolveMulticastGroup transport ep
