@@ -41,6 +41,7 @@ module Network.Transport.ZMQ
   -- $multicast
   ) where
 
+import Prelude hiding (sequence_)
 import Network.Transport.ZMQ.Internal.Types
 import qualified Network.Transport.ZMQ.Internal as ZMQ
 
@@ -88,7 +89,10 @@ import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as B8
-import           Data.Foldable ( traverse_ )
+import           Data.Foldable
+      ( traverse_
+      , sequence_
+      )
 import qualified Data.Foldable as Foldable
 import           Data.IORef
       ( newIORef
@@ -308,7 +312,8 @@ createTransportExposeInternals params host = do
   where
     addr = B.concat ["tcp://", host]
 
--- Synchronous
+-- | Close Transport on the current node.
+-- This operation is synchronous.
 apiTransportClose :: TransportInternals -> IO ()
 apiTransportClose transport = mask_ $ do
     old <- swapMVar (transportState transport) TransportClosed
@@ -316,10 +321,10 @@ apiTransportClose transport = mask_ $ do
       TransportClosed -> return ()
       TransportValid v -> either errorLog return <=< tryZMQ $ do
           traverse_ (liftM2 (>>) Async.cancel Async.waitCatch)
-                             (v ^. transportAuth)
+                    (v ^. transportAuth)
           traverse_ (apiCloseEndPoint transport)
                     (v ^. transportEndPoints)
-          Foldable.sequence_ =<< atomicModifyIORef' (v ^. transportSockets) (\x -> (IntMap.empty, x))
+          sequence_ =<< atomicModifyIORef' (v ^. transportSockets) (\x -> (IntMap.empty, x))
           ZMQ.term (v ^. transportContext)
 
 -- | Creates a new endpoint on the transport specified and applies all hints.
