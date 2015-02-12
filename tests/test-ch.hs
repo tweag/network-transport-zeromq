@@ -12,7 +12,7 @@ import TEST_SUITE_MODULE (tests)
 
 import Network.Transport.Test (TestTransport(..))
 import Network.Transport.ZMQ
-  ( createTransportEx
+  ( createTransportExposeInternals
   , defaultZMQParameters
   , breakConnection
   )
@@ -20,7 +20,7 @@ import Test.Framework (defaultMain)
 
 main :: IO ()
 main = do
-    (zmqt, transport) <- createTransportEx defaultZMQParameters "127.0.0.1"
+    (zmqt, transport) <- createTransportExposeInternals defaultZMQParameters "127.0.0.1"
     defaultMain =<< tests TestTransport
       { testTransport = transport
       , testBreakConnection = breakConnection zmqt
