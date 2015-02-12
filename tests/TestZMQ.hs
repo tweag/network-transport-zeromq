@@ -9,7 +9,9 @@ import Network.Transport.Tests
 import Network.Transport.Tests.Auxiliary (runTests)
 
 main :: IO ()
-main = testTransport' (Right <$> createTransport defaultZMQParameters "127.0.0.1")
+main = do
+  testTransport' (Right <$> createTransport defaultZMQParameters (TCP "127.0.0.1"))
+  testTransport' (Right <$> createTransport defaultZMQParameters (IPC "/tmp/" "zeromqXXX.ipc"))
 
 testTransport' :: IO (Either String Transport) -> IO ()
 testTransport' newTransport = do

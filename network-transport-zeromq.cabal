@@ -54,7 +54,8 @@ library
                       semigroups >= 0.12,
                       exceptions >= 0.3,
                       random >= 1.0,
-                      data-accessor >= 0.2
+                      data-accessor >= 0.2,
+                      temporary >= 1.2
   exposed-modules:    Network.Transport.ZMQ
                       Network.Transport.ZMQ.Internal
                       Network.Transport.ZMQ.Internal.Types
@@ -107,7 +108,7 @@ Test-Suite test-ch-core
   Build-Depends:      base >= 4.4 && < 5,
                       network-transport-zeromq,
                       distributed-process-tests >= 0.4,
-                      network >= 2.3 && < 2.5,
+                      network >= 2.3 && < 2.7,
                       network-transport >= 0.3,
                       test-framework >= 0.6 && < 0.9,
                       containers,
@@ -128,7 +129,7 @@ Test-Suite test-ch-closure
   Build-Depends:      base >= 4.4 && < 5,
                       network-transport-zeromq,
                       distributed-process-tests >= 0.4,
-                      network >= 2.3 && < 2.5,
+                      network >= 2.3 && < 2.7,
                       network-transport >= 0.3,
                       test-framework >= 0.6 && < 0.9,
                       containers,
@@ -149,7 +150,7 @@ Test-Suite test-ch-stat
   Build-Depends:      base >= 4.4 && < 5,
                       network-transport-zeromq,
                       distributed-process-tests >= 0.4,
-                      network >= 2.3 && < 2.5,
+                      network >= 2.3 && < 2.7,
                       network-transport >= 0.3,
                       test-framework >= 0.6 && < 0.9,
                       containers,

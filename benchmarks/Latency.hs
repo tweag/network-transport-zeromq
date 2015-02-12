@@ -12,7 +12,7 @@ import Criterion.Measurement as M
 import Data.Binary (encode, decode)
 import Data.ByteString.Char8 (pack)
 import qualified Data.ByteString.Lazy as BSL
-import Network.Transport.ZMQ (createTransport, defaultZMQParameters)
+import Network.Transport.ZMQ (TransportAddress(TCP), createTransport, defaultZMQParameters)
 import System.Environment
 import Text.Printf
 
@@ -41,7 +41,7 @@ main :: IO ()
 main = getArgs >>= \case
   [] -> defaultBenchmark
   [role, host] -> do
-    transport <- createTransport defaultZMQParameters (pack host)
+    transport <- createTransport defaultZMQParameters (TCP $ pack host)
     node <- newLocalNode transport initRemoteTable
     case role of
         "SERVER" -> runProcess node initialServer
@@ -53,7 +53,7 @@ defaultBenchmark :: IO ()
 defaultBenchmark = do
   -- server
   void . forkOS $ do
-    transport <- createTransport defaultZMQParameters "127.0.0.1"
+    transport <- createTransport defaultZMQParameters (TCP "127.0.0.1")
     node <- newLocalNode transport initRemoteTable
     runProcess node $ initialServer
   
@@ -62,7 +62,7 @@ defaultBenchmark = do
   void . forkOS $ do
     putStrLn "pings        time\n---          ---\n"
     forM_ [100,200,600,800,1000,2000,5000,8000,10000] $ \i -> do
-        transport <- createTransport defaultZMQParameters "127.0.0.1"
+        transport <- createTransport defaultZMQParameters (TCP "127.0.0.1")
         node <- newLocalNode transport initRemoteTable
         d <- snd <$> M.measure (nfIO $ runProcess node $ initialClient i) 1
         printf "%-8i %10.4f\n" i d

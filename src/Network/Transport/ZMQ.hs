@@ -13,10 +13,12 @@
 -- This module is intended to be imported qualified.
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Network.Transport.ZMQ
   ( -- * Main API
     createTransport
+  , TransportAddress(..)
   , ZMQParameters(..)
   , SecurityMechanism(..)
   , defaultZMQParameters
@@ -116,10 +118,11 @@ import           System.IO
 import           System.ZMQ4
       ( Context )
 import qualified System.ZMQ4 as ZMQ
-import Data.Accessor ((^.), (^=), (^:) ) 
+import Data.Accessor ((^.), (^=), (^:) )
 
-import           Text.Printf
-
+import Text.Printf (printf)
+import System.IO.Temp
+import System.IO (hClose)
 --------------------------------------------------------------------------------
 --- Internal datatypes                                                        --
 --------------------------------------------------------------------------------
@@ -283,16 +286,16 @@ instance Exception ZMQError
 
 -- | Create 0MQ based transport.
 createTransport :: ZMQParameters
-                -> ByteString            -- ^ Transport address (IP or hostname)
+                -> TransportAddress      -- ^ Transport address (IP or hostname)
                 -> IO Transport
 createTransport z b = (fmap snd) (createTransportExposeInternals z b)
 
 -- | You should probably not use this function (used for unit testing only)
 createTransportExposeInternals
   :: ZMQParameters                       -- ^ Configuration parameters for ZeroMQ
-  -> ByteString                          -- ^ Host name or IP address
+  -> TransportAddress                    -- ^ Host name or IP address
   -> IO (TransportInternals, Transport)
-createTransportExposeInternals params host = do
+createTransportExposeInternals params addr = do
     ctx       <- ZMQ.context
     mtid <- Traversable.sequenceA $
             fmap (\(SecurityPlain user pass) -> ZMQ.authManager ctx user pass) $
@@ -305,8 +308,6 @@ createTransportExposeInternals params host = do
       { newEndPoint    = apiNewEndPoint defaultHints transport
       , closeTransport = apiTransportClose transport
       })
-  where
-    addr = B.concat ["tcp://", host]
 
 -- Synchronous
 apiTransportClose :: TransportInternals -> IO ()
@@ -332,7 +333,7 @@ apiNewEndPoint hints transport = try $ mapZMQException (TransportError NewEndPoi
        TransportValid i -> do
          (ep, chan) <- endPointCreate hints (transportParameters transport)
                                             (i ^. transportContext)
-                                            (B8.unpack addr)
+                                            addr
          return $
            ( TransportValid
            . (transportEndPoints ^: (Map.insert (localEndPointAddress ep) ep))
@@ -378,10 +379,23 @@ apiCloseEndPoint transport lep = mask_ $ either errorLog return <=< tryZMQ $ do
         . (transportEndPoints ^: (Map.delete (localEndPointAddress lep)))
         $ v
 
+-- | Bind generate an address for enpoint and bind socket to that
+-- address. Returns a textual representation of the address.
+bindEndPoint :: ZMQ.Socket a -> TransportAddress -> IO ByteString
+bindEndPoint sock (TCP host) = do
+   port <- ZMQ.bindRandomPort sock (B8.unpack $ B8.concat ["tcp://", host])
+   return $! B8.concat ["tcp://", host, ":", B8.pack $ show port]
+bindEndPoint sock (IPC dir templ) = do
+   (fp, hld) <- openTempFile dir templ
+   hClose hld
+   let fp' = "ipc://" ++ fp
+   ZMQ.bind sock fp'
+   return $! B8.pack fp'
+
 endPointCreate :: Hints
                -> ZMQParameters
                -> Context
-               -> String
+               -> TransportAddress
                -> IO (LocalEndPoint, TMChan Event)
 endPointCreate hints params ctx addr = promoteZMQException $ do
     pull <- ZMQ.socket ctx ZMQ.Pull
@@ -390,19 +404,21 @@ endPointCreate hints params ctx addr = promoteZMQException $ do
           Just SecurityPlain{} -> do
               ZMQ.setPlainServer True pull
     ZMQ.setSendHighWM (ZMQ.restrict (zmqHighWaterMark params)) pull
-    port <- case hintsPort hints of
-              Nothing -> ZMQ.bindRandomPort pull addr
-              Just i  -> do ZMQ.bind pull (addr ++ ":" ++ show i)
-                            return i
+    addr' <- case hintsPort hints of
+              Nothing -> bindEndPoint pull addr
+              Just i  -> case addr of
+                            IPC _ _  -> error "IPC port hint is not supported"
+                            TCP host -> let a' = B8.unpack host ++ ":" ++ show i
+                                        in do ZMQ.bind pull a' 
+                                              return (B8.pack a')
 
     chOut <- newTMChanIO
-    lep   <- LocalEndPoint <$> pure (EndPointAddress $ B8.pack (addr ++ ":" ++ show port))
+    lep   <- LocalEndPoint <$> pure (EndPointAddress addr')
                            <*> newEmptyMVar
-                           <*> pure port
     opened <- newIORef True
     mask $ \restore -> do
       thread <- Async.async $ (restore (receiver pull lep chOut))
-                            `finally` finalizeEndPoint lep port pull
+                            `finally` finalizeEndPoint lep pull
       putMVar (localEndPointState lep) $ LocalEndPointValid
               (ValidLocalEndPoint chOut (Counter 0 Map.empty) Map.empty thread opened Map.empty)
       return (lep, chOut)
@@ -503,7 +519,7 @@ endPointCreate hints params ctx addr = promoteZMQException $ do
 	    LocalEndPointClosed -> return (LocalEndPointClosed, return ())
         MessageInitConnectionOk theirAddress ourId theirId -> do
           join $ withMVar (localEndPointState ourEp) $ \case
-            LocalEndPointValid v -> 
+            LocalEndPointValid v ->
                 case v ^. localEndPointRemoteAt theirAddress of
                   Nothing  -> return (return ()) -- XXX: send message to the host
                   Just rep -> modifyMVar (remoteEndPointState rep) $ \case
@@ -550,7 +566,7 @@ endPointCreate hints params ctx addr = promoteZMQException $ do
             closeRemoteEndPoint ourEp rep state
       where
         ourAddr = localEndPointAddress ourEp
-    finalizeEndPoint ourEp _port pull = do
+    finalizeEndPoint ourEp pull = do
       join $ withMVar (localEndPointState ourEp) $ \case
         LocalEndPointClosed  -> afterP ()
         LocalEndPointValid v -> do
@@ -673,7 +689,7 @@ apiConnect :: ZMQParameters
            -> ConnectHints
            -> IO (Either (TransportError ConnectErrorCode) Connection)
 apiConnect params ctx ourEp theirAddr reliability _hints = fmap (either Left id) $  try $
-    mapZMQException (TransportError ConnectFailed . show) $ do 
+    mapZMQException (TransportError ConnectFailed . show) $ do
       eRep <- createOrGetRemoteEndPoint params ctx ourEp theirAddr
       case eRep of
         Left{} -> return $ Left $ TransportError ConnectFailed "LocalEndPoint is closed."
@@ -760,7 +776,7 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
       state <- newMVar . RemoteEndPointPending =<< newIORef []
       opened <- newIORef False
       let rep = RemoteEndPoint theirAddr state opened
-      return ( LocalEndPointValid 
+      return ( LocalEndPointValid
              . (localEndPointRemotes ^: (Map.insert theirAddr rep))
              $ v
              , initialize push rep >> return (Right rep))
@@ -989,6 +1005,8 @@ apiNewMulticastGroup :: Hints                                   -- ^ Multicast g
                      -> TransportInternals                      -- ^ Internal transport state.
                      -> LocalEndPoint                           -- ^ EndPoint that is associated with the multicast group.
                      -> IO ( Either (TransportError NewMulticastGroupErrorCode) MulticastGroup)
+apiNewMulticastGroup _params (transportAddress -> IPC _ _) _ =
+  return $ Left $ TransportError NewMulticastGroupUnsupported "MulticastGroup is not supported for IPC backend"
 apiNewMulticastGroup hints zmq lep = withMVar (transportState zmq) $ \case
   TransportClosed -> return $ Left $ TransportError NewMulticastGroupFailed "Transport is closed."
   TransportValid vt -> modifyMVar (localEndPointState lep) $ \case
@@ -997,13 +1015,13 @@ apiNewMulticastGroup hints zmq lep = withMVar (transportState zmq) $ \case
       (pub, portPub, rep, portRep, wrkThread) <- mkPublisher vt
 
       let addr = MulticastAddress $
-           B8.concat [transportAddress zmq,":",B8.pack (show portPub), ":",B8.pack (show portRep)]
+           B8.concat [host, ":", B8.pack (show portPub), ":", B8.pack (show portRep)]
           subAddr = extractPubAddress addr
           repAddr = extractRepAddress addr
 
       -- subscriber api
       sub <- ZMQ.socket (vt ^. transportContext) ZMQ.Sub
-      ZMQ.connect sub (B8.unpack subAddr)
+      ZMQ.connect sub (B8.unpack $ B.concat ["tcp://",subAddr])
       ZMQ.subscribe sub ""
 
       subscribed <- newIORef False
@@ -1033,16 +1051,17 @@ apiNewMulticastGroup hints zmq lep = withMVar (transportState zmq) $ \case
                 }
               )
   where
+    TCP host = transportAddress zmq
     mkPublisher vt = do
       pub <- ZMQ.socket (vt^.transportContext) ZMQ.Pub
       portPub <- case hintsPort hints of
-                   Nothing -> ZMQ.bindRandomPort pub (B8.unpack $ transportAddress zmq)
-                   Just i  -> do ZMQ.bind pub (B8.unpack (transportAddress zmq) ++ ":" ++ show i)
+                   Nothing -> ZMQ.bindRandomPort pub (B8.unpack $ B.concat ["tcp://",host])
+                   Just i  -> do ZMQ.bind pub (B8.unpack host ++ ":" ++ show i)
                                  return i
       rep <- ZMQ.socket (vt^.transportContext) ZMQ.Rep
       portRep <- case hintsControlPort hints of
-                   Nothing -> ZMQ.bindRandomPort rep (B8.unpack $ transportAddress zmq)
-                   Just i  -> do ZMQ.bind rep (B8.unpack (transportAddress zmq) ++ ":" ++ show i)
+                   Nothing -> ZMQ.bindRandomPort rep (B8.unpack $ B.concat ["tcp://",host])
+                   Just i  -> do ZMQ.bind rep (B8.unpack host ++ ":" ++ show i)
                                  return i
       wrkThread <- Async.async $ forever $ do
         msg <- ZMQ.receiveMulti rep
@@ -1058,9 +1077,9 @@ apiResolveMulticastGroup zmq lep addr = withMVar (transportState zmq) $ \case
     LocalEndPointValid vl -> mask_ $ do
       -- socket allocation
       req <- ZMQ.socket (vt^.transportContext) ZMQ.Req
-      ZMQ.connect req (B8.unpack reqAddr)
+      ZMQ.connect req (B8.unpack $ B.concat ["tcp://", reqAddr])
       sub <- ZMQ.socket (vt^.transportContext) ZMQ.Sub
-      ZMQ.connect sub (B8.unpack subAddr)
+      ZMQ.connect sub (B8.unpack $ B.concat ["tcp://", subAddr])
       ZMQ.subscribe sub ""
 
       subscribed <- newIORef False

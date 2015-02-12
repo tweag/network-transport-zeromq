@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+import Control.Arrow
 import Control.Concurrent
 import Control.Monad ( replicateM )
 
@@ -13,19 +14,27 @@ import Test.Tasty.HUnit
 
 main :: IO ()
 main = defaultMain $
-  testGroup "API tests"
-      [ testCase "simple" test_simple
-      , testCase "connection break" test_connectionBreak
-      , testCase "test multicast" test_multicast
-      , testCase "authentification" test_auth
-      , testCase "connect to non existent host" test_nonexists
-      , testCase "test cleanup actions" test_cleanup
-      , testCase "connect with prior knowledge" test_prior
+  testGroup "API tests" $
+    map (uncurry testGroup . second (\x -> map ($ x) tests)) addrs
+    ++
+    [ testCase "test multicast" $ test_multicast (TCP "127.0.0.1")
+    ]
+  where
+    addrs = [ ("TCP", TCP "127.0.0.1")
+            , ("IPC", IPC "/tmp/" "zeromqXXX.ipc")
+            ]
+    tests :: [TransportAddress -> TestTree]
+    tests =
+      [ testCase "simple"  . test_simple
+      , testCase "connection break" . test_connectionBreak
+      , testCase "authentification" . test_auth
+      , testCase "connect to non existent host" . test_nonexists
+      , testCase "test cleanup actions" . test_cleanup
       ]
 
-test_simple :: IO ()
-test_simple = do
-    transport <- createTransport defaultZMQParameters "127.0.0.1"
+test_simple :: TransportAddress -> IO ()
+test_simple addr = do
+    transport <- createTransport defaultZMQParameters addr
     Right ep1 <- newEndPoint transport
     Right ep2 <- newEndPoint transport
     Right c1  <- connect ep1 (address ep2) ReliableOrdered defaultConnectHints
@@ -38,10 +47,10 @@ test_simple = do
     [ConnectionOpened 1 ReliableOrdered _, Received 1 ["123"], ConnectionClosed 1] <- replicateM 3 $ receive ep2
     closeTransport transport
 
-test_connectionBreak :: IO ()
-test_connectionBreak = do
+test_connectionBreak :: TransportAddress -> IO ()
+test_connectionBreak addr = do
     (zmq, transport) <-
-      createTransportExposeInternals defaultZMQParameters "127.0.0.1"
+      createTransportExposeInternals defaultZMQParameters addr
     Right ep1 <- newEndPoint transport
     Right ep2 <- newEndPoint transport
     Right ep3 <- newEndPoint transport
@@ -70,9 +79,9 @@ test_connectionBreak = do
     Received 3 ["final"] <- receive ep1
     closeTransport transport
 
-test_multicast :: IO ()
-test_multicast = do
-    transport <- createTransport defaultZMQParameters "127.0.0.1"
+test_multicast :: TransportAddress -> IO ()
+test_multicast addr = do
+    transport <- createTransport defaultZMQParameters addr
     Right ep1 <- newEndPoint transport
     Right ep2 <- newEndPoint transport
     Right g1 <- newMulticastGroup ep1
@@ -88,12 +97,12 @@ test_multicast = do
     ReceivedMulticast _ ["test-2"] <- receive ep1
     return ()
 
-test_auth :: IO ()
-test_auth = do
+test_auth :: TransportAddress -> IO ()
+test_auth addr = do
     tr2 <-
       createTransport defaultZMQParameters{ zmqSecurityMechanism =
                                               Just $ SecurityPlain "user" "password" }
-                      "127.0.0.1"
+                      addr
     Right ep3 <- newEndPoint tr2
     Right ep4 <- newEndPoint tr2
     Right c3  <- connect ep3 (address ep4) ReliableOrdered defaultConnectHints
@@ -104,17 +113,17 @@ test_auth = do
     [ConnectionOpened 2 ReliableOrdered _, Received 2 ["5567"]] <- replicateM 2 $ receive ep4
     return ()
 
-test_nonexists :: IO ()
-test_nonexists = do
-    tr <- createTransport defaultZMQParameters "127.0.0.1"
+test_nonexists :: TransportAddress -> IO ()
+test_nonexists addr = do
+    tr <- createTransport defaultZMQParameters addr
     Right ep <- newEndPoint tr
     Left (TransportError ConnectFailed _) <- connect ep (EndPointAddress "tcp://129.0.0.1:7684") ReliableOrdered defaultConnectHints
     closeTransport tr
 
-test_cleanup :: IO ()
-test_cleanup = do
+test_cleanup :: TransportAddress -> IO ()
+test_cleanup addr = do
     (zmq, transport) <-
-      createTransportExposeInternals defaultZMQParameters "127.0.0.1"
+      createTransportExposeInternals defaultZMQParameters addr
     x <- newIORef (0::Int)
     Just _ <- registerCleanupAction zmq (modifyIORef x (+1))
     Just u <- registerCleanupAction zmq (modifyIORef x (+1))
@@ -125,11 +134,11 @@ test_cleanup = do
 
 test_prior :: IO ()
 test_prior = do
-    (zmqa, _) <- createTransportExposeInternals defaultZMQParameters "127.0.0.1"
+    (zmqa, _) <- createTransportExposeInternals defaultZMQParameters (TCP "127.0.0.1")
     Right epa <- apiNewEndPoint defaultHints{hintsPort=Just 8888} zmqa
 
     (_, transportb) <-
-          createTransportExposeInternals defaultZMQParameters "127.0.0.1"
+          createTransportExposeInternals defaultZMQParameters (TCP "127.0.0.1")
     Right epb <- newEndPoint transportb
     Right _   <- connect epb (EndPointAddress "tcp://127.0.0.1:8888") ReliableOrdered defaultConnectHints
     (ConnectionOpened 1 ReliableOrdered _) <- receive epa
