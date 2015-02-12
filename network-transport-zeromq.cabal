@@ -19,12 +19,13 @@ category:            Network
 build-type:          Simple
 cabal-version:       >=1.10
 
+Extra-Source-Files:
+  ChangeLog.md
+
 Source-repository head
   Type: git
   Location: https://github.com/tweag/network-transport-zeromq
 
-extra-source-files:
-  ChangeLog.md
 
 flag install-benchmarks
   description:
