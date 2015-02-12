@@ -293,14 +293,14 @@ createTransportExposeInternals
   -> ByteString                          -- ^ Host name or IP address
   -> IO (TransportInternals, Transport)
 createTransportExposeInternals params host = do
-    ctx       <- ZMQ.context
+    ctx  <- ZMQ.context
     mtid <- Traversable.sequenceA $
             fmap (\(SecurityPlain user pass) -> ZMQ.authManager ctx user pass) $
                  zmqSecurityMechanism params
     transport <- TransportInternals
         <$> pure addr
         <*> (newMVar =<< mkTransportState ctx mtid)
-	<*> pure params
+        <*> pure params
     return $ (transport, Transport
       { newEndPoint    = apiNewEndPoint defaultHints transport
       , closeTransport = apiTransportClose transport
