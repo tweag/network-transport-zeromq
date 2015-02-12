@@ -315,10 +315,10 @@ apiTransportClose transport = mask_ $ do
     case old of
       TransportClosed -> return ()
       TransportValid v -> either errorLog return <=< tryZMQ $ do
-          Foldable.traverse_ (liftM2 (>>) Async.cancel Async.waitCatch)
+          traverse_ (liftM2 (>>) Async.cancel Async.waitCatch)
                              (v ^. transportAuth)
-          Foldable.sequence_ $ Map.map (apiCloseEndPoint transport)
-                                       (v ^. transportEndPoints)
+          traverse_ (apiCloseEndPoint transport)
+                    (v ^. transportEndPoints)
           Foldable.sequence_ =<< atomicModifyIORef' (v ^. transportSockets) (\x -> (IntMap.empty, x))
           ZMQ.term (v ^. transportContext)
 
