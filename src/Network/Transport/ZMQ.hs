@@ -123,7 +123,6 @@ import qualified System.ZMQ4 as ZMQ
 import Data.Accessor ((^.), (^=), (^:) ) 
 
 import           Text.Printf
-import           Debug.Trace
 
 --------------------------------------------------------------------------------
 --- Internal datatypes                                                        --
@@ -516,11 +515,11 @@ endPointCreate hints params ctx addr = promoteZMQException $ do
                     RemoteEndPointFailed -> return (RemoteEndPointFailed, return ())
                     RemoteEndPointClosed -> throwM $ InvariantViolation "RemoteEndPoint should be valid or failed."
                     RemoteEndPointClosing{} -> throwM $ InvariantViolation "RemoteEndPoint should be valid or failed."
-                    t@(RemoteEndPointValid (ValidRemoteEndPoint sock (Counter x m) s z)) -> do
+                    t@(RemoteEndPointValid (ValidRemoteEndPoint sock (Counter x m) s z)) -> return $
                       case ourId `Map.lookup` m of
-                          Nothing -> return (t, return ())     -- XXX: send message to the hostv
-                          Just c  -> mask_ $ do
-                            return (RemoteEndPointValid (ValidRemoteEndPoint sock (Counter x (ourId `Map.delete` m)) s (z+1))
+                          Nothing -> (t, return ())     -- XXX: send message to the hostv
+                          Just c  ->
+                                   (RemoteEndPointValid (ValidRemoteEndPoint sock (Counter x (ourId `Map.delete` m)) s (z+1))
                                    , do
                                         modifyMVar_ (connectionState c) $ \case
                                           ZMQConnectionFailed -> return ZMQConnectionFailed
