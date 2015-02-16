@@ -1,3 +1,5 @@
+-- |
+-- Copyright: (C) 2014-2015 EURL Tweag
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 

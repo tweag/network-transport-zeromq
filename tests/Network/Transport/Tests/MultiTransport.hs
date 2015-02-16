@@ -1,3 +1,5 @@
+-- |
+-- Copyright: (C) 2014 - 2015 EURL Tweag
 {-# LANGUAGE RebindableSyntax, CPP, OverloadedStrings #-}
 module Network.Transport.Tests.MultiTransport where
 
