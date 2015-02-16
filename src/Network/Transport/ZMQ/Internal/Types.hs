@@ -63,8 +63,8 @@ import Control.Concurrent.STM.TMChan
 import Data.Word
 import Data.ByteString
 import Data.IORef
-import Data.IntMap (IntMap)
-import qualified Data.IntMap as IntMap
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict  as Map
 import           Data.Set
@@ -266,7 +266,6 @@ nextElementM' t me (Counter n m) =
   where
     n' = succ n
     mv = me n'
-
 
 -------------------------------------------------------------------------------
 -- Accessors definitions
