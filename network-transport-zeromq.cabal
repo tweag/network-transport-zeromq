@@ -12,12 +12,14 @@ description:
   message batching.
 license:             BSD3
 license-file:        LICENSE
-copyright:           (c) 2014, EURL Tweag
+copyright:           (c) 2014-2015, EURL Tweag
 author:              Tweag I/O
 maintainer:          Alexander Vershilov <alexander.vershilov@tweag.io>
 category:            Network
 build-type:          Simple
 cabal-version:       >=1.10
+homepage:            https://github.com/tweag/network-transport-zeromq
+bug-reports:         https://github.com/tweag/network-transport-zeromq/issues
 
 Extra-Source-Files:
   ChangeLog.md
