@@ -31,27 +31,21 @@ Features
 
 ### Plain text authorization
 
-It's possible to add default user and password for all transport
-connection by setting authorization ZMQParameters
+It's possible to set a default username and password for all transport
+connections by setting authorization ZMQParameters
 ```haskell
 defaultZMQParameters{ authorizationType = ZMQAuthPlain "user" "password" }
 ```
 
 ### Reliable connections
 
-n-t-zmq uses Push-Pull pattern to implement reliable connections.
+n-t-zmq uses the Push-Pull pattern to implement reliable connections.
 
 ### Multicast protocol
 
-network-transport-zeromq provide multicast group based on Pub-Sub
-protocol. This protocol is semi-reliable, in that if the high water
+network-transport-zeromq provides multicast group-based communication with the
+Pub-Sub protocol. This protocol is semi-reliable, in that if the high water
 mark (HWM) is reached then some messages may be lost.
-
-### Manual connection break
-
-ØMQ automatically reconnects when connection is down and resend
-messages so no message will be lost, however this may break some user
-assumptions thus it's possible to mark.
 
 Stability
 ---------
