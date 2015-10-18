@@ -120,7 +120,7 @@ import           System.IO
 import           System.ZMQ4
       ( Context )
 import qualified System.ZMQ4 as ZMQ
-import Data.Accessor ((^.), (^=), (^:) ) 
+import Data.Accessor ((^.), (^=), (^:) )
 
 import           Text.Printf
 
@@ -426,7 +426,7 @@ endPointCreate hints params ctx addr = promoteZMQException $ do
     receiver :: ZMQ.Socket ZMQ.Pull
              -> LocalEndPoint
              -> TMChan Event
-	     -> IO ()
+             -> IO ()
     receiver pull ourEp chan = forever $ mask_ $ do
       (cmd:msgs) <- ZMQ.receiveMulti pull
       case decode' cmd of
@@ -505,10 +505,10 @@ endPointCreate hints params ctx addr = promoteZMQException $ do
                                ZMQConnectionValid (ValidZMQConnection _ _) -> do
                                   atomically $ writeTMChan chan (ConnectionClosed idx)
                                   connectionCleanup (connectionRemoteEndPoint conn) idx)
-	    LocalEndPointClosed -> return (LocalEndPointClosed, return ())
+            LocalEndPointClosed -> return (LocalEndPointClosed, return ())
         MessageInitConnectionOk theirAddress ourId theirId -> do
           join $ withMVar (localEndPointState ourEp) $ \case
-            LocalEndPointValid v -> 
+            LocalEndPointValid v ->
                 case v ^. localEndPointRemoteAt theirAddress of
                   Nothing  -> return (return ()) -- XXX: send message to the host
                   Just rep -> modifyMVar (remoteEndPointState rep) $ \case
@@ -649,7 +649,7 @@ apiConnect :: ZMQParameters
            -> ConnectHints
            -> IO (Either (TransportError ConnectErrorCode) Connection)
 apiConnect params ctx ourEp theirAddr reliability _hints = fmap (either Left id) $  try $
-    mapZMQException (TransportError ConnectFailed . show) $ do 
+    mapZMQException (TransportError ConnectFailed . show) $ do
       eRep <- createOrGetRemoteEndPoint params ctx ourEp theirAddr
       case eRep of
         Left{} -> return $ Left $ TransportError ConnectFailed "LocalEndPoint is closed."
@@ -736,7 +736,7 @@ createOrGetRemoteEndPoint params ctx ourEp theirAddr = join $ do
       state <- newMVar . RemoteEndPointPending =<< newIORef []
       opened <- newIORef False
       let rep = RemoteEndPoint theirAddr state opened
-      return ( LocalEndPointValid 
+      return ( LocalEndPointValid
              . (localEndPointRemotes ^: (Map.insert theirAddr rep))
              $ v
              , initialize push rep >> return (Right rep))
@@ -959,7 +959,7 @@ unsafeConfigurePush zmqt from to f = withMVar (transportState zmqt) $ \case
 --
 -- >  host:Port:ControlPort
 --
--- where Port is 'hintsPort' and ControlPort is 'hintsControlPort'. If the hint port 
+-- where Port is 'hintsPort' and ControlPort is 'hintsControlPort'. If the hint port
 -- is not specified then random ports will be used.
 apiNewMulticastGroup :: Hints                                   -- ^ Multicast group hints.
                      -> TransportInternals                      -- ^ Internal transport state.

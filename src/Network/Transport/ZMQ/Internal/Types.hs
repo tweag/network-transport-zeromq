@@ -80,6 +80,7 @@ import Network.Transport
 import qualified System.ZMQ4 as ZMQ
 import Data.Accessor (Accessor, accessor)
 import qualified Data.Accessor.Container as DAC (mapMaybe)
+import Prelude
 
 
 -- | Parameters for ZeroMQ connection.
@@ -296,7 +297,7 @@ localEndPointRemotes :: Accessor ValidLocalEndPoint (Map EndPointAddress RemoteE
 localEndPointRemotes = accessor _localEndPointRemotes (\e t -> t{_localEndPointRemotes = e})
 
 localEndPointRemoteAt :: EndPointAddress -> Accessor ValidLocalEndPoint (Maybe RemoteEndPoint)
-localEndPointRemoteAt addr = localEndPointRemotes >>> DAC.mapMaybe addr 
+localEndPointRemoteAt addr = localEndPointRemotes >>> DAC.mapMaybe addr
 
 localEndPointMulticastGroups :: Accessor ValidLocalEndPoint (Map MulticastAddress ZMQMulticastGroup)
 localEndPointMulticastGroups = accessor _localEndPointMulticastGroups (\e t -> t{_localEndPointMulticastGroups = e})
