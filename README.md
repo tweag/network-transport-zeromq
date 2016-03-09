@@ -60,21 +60,22 @@ also passing, except monitoring and connection failure tests.
 [network-transport-tests]: http://hackage.haskell.org/package/network-transport-tests
 [distributed-process-tests]: https://github.com/haskell-distributed/distributed-process-tests
 
-Credits
--------
-
-![Tweag I/O](http://i.imgur.com/0HK8X4y.png)
-
-network-transport-zeromq is maintained and funded by [Tweag
-I/O](http://tweag.io/).
-
-The names and logos for Tweag I/O are trademarks of EURL Tweag.
-
-Got questions? Need help? Tweet at [@tweagio](http://twitter.com/tweagio).
-
 License
 -------
 
-network-transport-zeromq is Copyright © 2014 EURL Tweag. It is free
-software, and may be redistributed under the terms specified in the
-LICENSE file.
+Copyright © 2014-2015 EURL Tweag.
+
+All rights reserved.
+
+network-transport-zeromq is free software, and may be redistributed
+under the terms specified in the [LICENSE](LICENSE) file.
+
+About
+-----
+
+![Tweag I/O](http://i.imgur.com/0HK8X4y.png)
+
+HaskellR is maintained by [Tweag I/O](http://tweag.io/).
+
+Have questions? Need help? Tweet at
+[@tweagio](http://twitter.com/tweagio).
