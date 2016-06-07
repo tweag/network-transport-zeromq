@@ -1,19 +1,31 @@
-language: haskell
-ghc:
-  - 7.6
-  - 7.8
+language: c
+
+sudo: false
+
+matrix:
+  include:
+    - env: CABALVER=1.22 GHCVER=7.8.4
+      addons: {apt: {packages: [cabal-install-1.22,ghc-7.8.4], sources: [hvr-ghc]}}
+    - env: CABALVER=1.22 GHCVER=7.10.3
+      addons: {apt: {packages: [cabal-install-1.22,ghc-7.10.3],sources: [hvr-ghc]}}
+    - env: CABALVER=1.24 GHCVER=8.0.1
+      addons: {apt: {packages: [cabal-install-1.24,ghc-8.0.1],sources: [hvr-ghc]}}
 
 before_install:
   - sudo add-apt-repository ppa:chris-lea/zeromq -y
   - sudo apt-get update
-  - sudo apt-get install libzmq3 libzmq3-dev git
+  - sudo apt-get install libzmq3 libzmq3-dev
+  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:~/.cabal/bin:$PATH
+  - ghc --version
+  - cabal --version
   - cabal update
+  # workaround for https://ghc.haskell.org/trac/ghc/ticket/9221
+  # taken from https://github.com/hvr/multi-ghc-travis/blob/0fa68f78c2b1b059f904c9abc85510a3bb4f57e2/README.md
+  - sed -i 's/^jobs:/-- jobs:/' $HOME/.cabal/config
 
 install:
-  - cabal install --reorder-goals --max-backjumps=-1 --only-dependencies --enable-tests --enable-benchmarks
+  - cabal install --only-dependencies --enable-tests
 
 script:
-  - cabal configure --enable-tests --enable-benchmarks
-  - cabal build
   - cabal test
   - cabal bench
